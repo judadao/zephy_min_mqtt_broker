@@ -18,66 +18,144 @@ Not implemented: TLS, WebSocket.
 
 ---
 
-## Build Output
+## How It Works
 
-All build artifacts land in `build_out/` regardless of platform. Each file is stamped with version + date; a `latest` symlink without the stamp is also created.
+In normal mode this is a single MQTT broker. Clients connect to port `1883`, subscribe to topic filters, and receive matching publishes locally.
 
-| Symlink (always latest) | Stamped file | Platform |
-|------------------------|--------------|----------|
-| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.0_20260615` | Linux |
-| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.0_20260615` | Linux |
-| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.0_20260615.bin` | Zephyr/ESP32 |
-| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.0_20260615.elf` | Zephyr/ESP32 |
-| `build_out/zephyr.map` | `build_out/zephyr_v0.1.0_20260615.map` | Zephyr/ESP32 |
-
-Version is read from the Zephyr-format `VERSION` file (currently `0.1.0`). Override at build time:
-
-```bash
-make -f Makefile.linux VERSION=1.2.3
-VERSION=1.2.3 ./docker-build.sh
+```mermaid
+flowchart LR
+    Pub[Publisher] -->|PUBLISH sensors/kitchen/temp| Broker[mqtt_min_broker]
+    Sub1[Subscriber sensors/+/temp] --> Broker
+    Sub2[Subscriber home/#] --> Broker
+    Broker -->|match| Sub1
 ```
 
-`build_out/` is gitignored.
+The local publish path is small and static:
 
----
+```mermaid
+flowchart LR
+    RX[client thread recv_packet] --> HP[handle_publish]
+    HP --> TP[topic_publish]
+    TP --> LF[topic_match fan-out]
+    LF --> CS[client_send]
+    TP --> OFF[offline session queue]
+```
+
+### Optional Dynamic Broker Mode
+
+Dynamic broker mode is optional and disabled by default. In normal mode, every MQTT client connects to one standalone broker. In dynamic mode, clients can still connect to any broker, but the brokers form a small P2P network behind the scenes and route matching publishes to the node that owns the subscriber.
+
+```mermaid
+flowchart LR
+    C1[MQTT Client A] --> N1[Broker Node A]
+    C2[MQTT Client B] --> N2[Broker Node B]
+    C3[MQTT Client C] --> N3[Broker Node C]
+
+    subgraph P2P["Optional dynamic broker layer"]
+        N1 <-->|TCP 4884| N2
+        N2 <-->|TCP 4884| N3
+        N1 -. UDP score announce .-> N3
+    end
+
+    N1 -->|route matching PUBLISH| N3
+```
+
+Enable it with `P2P=1` on Linux or `CONFIG_MQTT_P2P_DYNAMIC=y` on Zephyr.
+
+#### Role election
+
+Every node calculates a resource score and announces it. Each node independently sorts the same score table; the top nodes become routers.
+
+```mermaid
+flowchart TD
+    A[Collect self stats] --> B[Broadcast score over UDP 4885]
+    B --> C[Receive peer scores]
+    C --> D[Sort by score, then node_id]
+    D --> E{Am I in top routers?}
+    E -->|yes| R[ROUTER: keep remote subscription table]
+    E -->|no| L[LEAF: attach to router nodes]
+```
+
+Score is intentionally simple and deterministic:
+
+```text
+score = free_client_slots * 10
+      + uptime_bonus
+      - active_peer_count * 5
+```
+
+On Zephyr, `P2P_PEER_MAX` defaults lower than Linux to fit ESP32 RAM.
+
+#### Subscription and publish routing
+
+Subscribers remain normal MQTT clients. The P2P layer only mirrors subscription intent between brokers.
+
+```mermaid
+sequenceDiagram
+    participant Sub as Client on Node B
+    participant B as Broker B
+    participant A as Router Broker A
+    participant Pub as Client on Node A
+
+    Sub->>B: SUBSCRIBE sensors/+/temp
+    B->>A: P2P_SUB_NOTIFY sensors/+/temp
+    Pub->>A: PUBLISH sensors/kitchen/temp
+    A->>A: local fan-out
+    A->>B: P2P_PUBLISH origin_id + seq
+    B->>Sub: MQTT PUBLISH sensors/kitchen/temp
+```
+
+Loop prevention uses `(origin_id, seq)` in each P2P publish. Nodes keep a small seen-message ring buffer and drop duplicates.
 
 ## Quick Start — Linux
 
 Build and test locally with no Zephyr toolchain required.
 
 ```bash
-# build broker + CLI tool  →  build_out/mqtt_broker, build_out/mqtt_cli
+# build broker + CLI tool  ->  build_out/mqtt_broker, build_out/mqtt_cli
 make -f Makefile.linux
 
 # start broker (listens on :1883)
 ./build_out/mqtt_broker
 
-# subscribe (another terminal — Ctrl-C to stop)
+# subscribe (another terminal; Ctrl-C to stop)
 ./build_out/mqtt_cli sub -t "test/#"
 
 # publish
 ./build_out/mqtt_cli pub -t test/hello -m "world"
-./build_out/mqtt_cli pub -t test/temp  -m "23.5" -q 1   # QoS 1
-./build_out/mqtt_cli pub -t test/keep  -m "hi"   -r      # retained
+./build_out/mqtt_cli pub -t test/temp  -m "23.5" -q 1
+./build_out/mqtt_cli pub -t test/keep  -m "hi"   -r
 
-# run automated test suite (12 tests)
+# run automated test suite
 ./scripts/test_broker.sh
 ```
 
 ### Build variants
 
 ```bash
-# with HTTP dashboard on :8080
+# HTTP dashboard on :8080
 make -f Makefile.linux DASHBOARD=1
 
-# with username/password auth
+# username/password auth
 make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
 
-# both
-make -f Makefile.linux DASHBOARD=1 AUTH_USER=admin AUTH_PASS=secret
-
-# dynamic broker P2P mode (UDP discovery + TCP inter-node routing)
+# dynamic broker P2P mode
 make -f Makefile.linux P2P=1
+```
+
+### Dynamic broker local test
+
+Linux local multi-node tests seed peers explicitly because same-host UDP broadcast is not always reliable:
+
+```bash
+MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
+./scripts/test_p2p_dynamic.sh
+```
+
+Compile-time overrides are available for local tests:
+
+```bash
+make -f Makefile.linux P2P=1 MQTT_PORT=1884 P2P_PORT=4894 P2P_DISCOVERY_PORT=4895
 ```
 
 ---
@@ -119,89 +197,6 @@ Enable with `DASHBOARD=1` at build time. Serves on port 8080:
 | `GET /` | HTML page — connected clients, subscriptions, retained messages, publish form |
 | `GET /api/status` | JSON snapshot of all broker state |
 | `POST /api/publish` | Publish a message: `{"topic":"…","payload":"…","qos":0}` |
-
----
-
-## Dynamic Broker P2P Mode
-
-Dynamic broker mode is optional and disabled by default. In normal mode, every MQTT client connects to one standalone broker. In dynamic mode, clients can still connect to any broker, but the brokers form a small P2P network behind the scenes and route matching publishes to the node that owns the subscriber.
-
-```mermaid
-flowchart LR
-    C1[MQTT Client A] --> N1[Broker Node A]
-    C2[MQTT Client B] --> N2[Broker Node B]
-    C3[MQTT Client C] --> N3[Broker Node C]
-
-    subgraph P2P["Optional dynamic broker layer"]
-        N1 <-->|TCP 4884| N2
-        N2 <-->|TCP 4884| N3
-        N1 -. UDP score announce .-> N3
-    end
-
-    N1 -->|route matching PUBLISH| N3
-```
-
-Enable it with `P2P=1` on Linux or `CONFIG_MQTT_P2P_DYNAMIC=y` on Zephyr.
-
-### Role election
-
-Every node calculates a resource score and announces it. Each node independently sorts the same score table; the top nodes become routers.
-
-```mermaid
-flowchart TD
-    A[Collect self stats] --> B[Broadcast score over UDP 4885]
-    B --> C[Receive peer scores]
-    C --> D[Sort by score, then node_id]
-    D --> E{Am I in top routers?}
-    E -->|yes| R[ROUTER: keep remote subscription table]
-    E -->|no| L[LEAF: attach to router nodes]
-```
-
-Score is intentionally simple and deterministic:
-
-```text
-score = free_client_slots * 10
-      + uptime_bonus
-      - active_peer_count * 5
-```
-
-On Zephyr, `P2P_PEER_MAX` defaults lower than Linux to fit ESP32 RAM.
-
-### Subscription and publish routing
-
-Subscribers remain normal MQTT clients. The P2P layer only mirrors subscription intent between brokers.
-
-```mermaid
-sequenceDiagram
-    participant Sub as Client on Node B
-    participant B as Broker B
-    participant A as Router Broker A
-    participant Pub as Client on Node A
-
-    Sub->>B: SUBSCRIBE sensors/+/temp
-    B->>A: P2P_SUB_NOTIFY sensors/+/temp
-    Pub->>A: PUBLISH sensors/kitchen/temp
-    A->>A: local fan-out
-    A->>B: P2P_PUBLISH origin_id + seq
-    B->>Sub: MQTT PUBLISH sensors/kitchen/temp
-```
-
-Loop prevention uses `(origin_id, seq)` in each P2P publish. Nodes keep a small seen-message ring buffer and drop duplicates.
-
-### Local test
-
-Linux local multi-node tests seed peers explicitly because same-host UDP broadcast is not always reliable:
-
-```bash
-MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
-./scripts/test_p2p_dynamic.sh
-```
-
-Compile-time overrides are available for local tests:
-
-```bash
-make -f Makefile.linux P2P=1 MQTT_PORT=1884 P2P_PORT=4894 P2P_DISCOVERY_PORT=4895
-```
 
 ---
 
@@ -309,6 +304,29 @@ Copy `prj.conf.template` → `prj.conf` and fill in credentials. `prj.conf` is g
 
 ---
 
+## Build Output
+
+All build artifacts land in `build_out/` regardless of platform. Each file is stamped with version + date; a `latest` symlink without the stamp is also created.
+
+| Symlink (always latest) | Stamped file | Platform |
+|------------------------|--------------|----------|
+| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.0_20260615` | Linux |
+| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.0_20260615` | Linux |
+| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.0_20260615.bin` | Zephyr/ESP32 |
+| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.0_20260615.elf` | Zephyr/ESP32 |
+| `build_out/zephyr.map` | `build_out/zephyr_v0.1.0_20260615.map` | Zephyr/ESP32 |
+
+Version is read from the Zephyr-format `VERSION` file (currently `0.1.0`). Override at build time:
+
+```bash
+make -f Makefile.linux VERSION=1.2.3
+VERSION=1.2.3 ./docker-build.sh
+```
+
+`build_out/` is gitignored.
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -337,20 +355,6 @@ flowchart TD
 | Local routing | `src/topic.c`, `src/session.c` | Local subscriptions, retained messages, persistent sessions |
 | Optional P2P | `src/p2p_*.c`, `include/p2p.h` | Discovery, election, peer links, remote subscription routing |
 | Platform layer | `platform/posix/`, `platform/zephyr/` | Socket, mutex, thread, time, and logging abstraction |
-
-PUBLISH data flow:
-
-```mermaid
-flowchart LR
-    RX[client thread recv_packet] --> HP[handle_publish]
-    HP --> TP[topic_publish]
-    TP --> LF[local topic_match fan-out]
-    LF --> CS[client_send]
-    TP --> OFF[session_offline_publish]
-    TP -. if P2P enabled .-> RP[p2p_publish_from_local]
-    RP --> Peer[router peers]
-    Peer --> Remote[topic_publish_remote]
-```
 
 Concurrency: one thread per MQTT client. P2P mode adds discovery, connect/accept, and peer threads. Shared state is guarded by per-module mutexes (`pool_lock`, `topic_lock`, `session_lock`, P2P locks).
 
