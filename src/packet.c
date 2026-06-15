@@ -317,6 +317,33 @@ int packet_build_puback(uint16_t packet_id, uint8_t *out, size_t out_cap)
     return 4;
 }
 
+int packet_build_pubrec(uint16_t packet_id, uint8_t *out, size_t out_cap)
+{
+    if (out_cap < 4) return -1;
+    out[0] = MQTT_PUBREC;
+    out[1] = 2;
+    write_u16(out + 2, packet_id);
+    return 4;
+}
+
+int packet_build_pubrel(uint16_t packet_id, uint8_t *out, size_t out_cap)
+{
+    if (out_cap < 4) return -1;
+    out[0] = MQTT_PUBREL | 0x02; /* fixed header 0x62 per spec */
+    out[1] = 2;
+    write_u16(out + 2, packet_id);
+    return 4;
+}
+
+int packet_build_pubcomp(uint16_t packet_id, uint8_t *out, size_t out_cap)
+{
+    if (out_cap < 4) return -1;
+    out[0] = MQTT_PUBCOMP;
+    out[1] = 2;
+    write_u16(out + 2, packet_id);
+    return 4;
+}
+
 int packet_build_pingresp(uint8_t *out, size_t out_cap)
 {
     if (out_cap < 2) {

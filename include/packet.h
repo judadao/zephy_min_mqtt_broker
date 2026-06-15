@@ -95,6 +95,9 @@ int packet_build_suback(uint16_t packet_id,
 int packet_build_unsuback(uint16_t packet_id, uint8_t *out, size_t out_cap);
 int packet_build_publish(const mqtt_publish_t *pub, uint8_t *out, size_t out_cap);
 int packet_build_puback(uint16_t packet_id, uint8_t *out, size_t out_cap);
+int packet_build_pubrec(uint16_t packet_id, uint8_t *out, size_t out_cap);
+int packet_build_pubrel(uint16_t packet_id, uint8_t *out, size_t out_cap);
+int packet_build_pubcomp(uint16_t packet_id, uint8_t *out, size_t out_cap);
 int packet_build_pingresp(uint8_t *out, size_t out_cap);
 
 #endif /* PACKET_H */

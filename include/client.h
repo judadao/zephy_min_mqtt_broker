@@ -8,6 +8,7 @@
 #define CLIENT_STACK_SIZE        2048
 #define CLIENT_INFLIGHT_MAX      4
 #define CLIENT_INFLIGHT_RETRY_MS 5000
+#define CLIENT_QOS2_IN_MAX       4   /* max simultaneous inbound QoS-2 publishes */
 
 typedef struct {
     uint16_t packet_id;
@@ -15,7 +16,14 @@ typedef struct {
     uint16_t len;
     int64_t  sent_at_ms;
     uint8_t  in_use;
+    uint8_t  qos;
+    uint8_t  waiting_pubcomp; /* QoS 2 outbound: 0=sent PUBLISH, 1=sent PUBREL */
 } inflight_t;
+
+typedef struct {
+    uint16_t packet_id;
+    uint8_t  in_use;
+} qos2_in_t;
 
 typedef enum {
     CLIENT_STATE_FREE = 0,
@@ -36,8 +44,9 @@ typedef struct client {
     mqtt_publish_t   will;
     uint8_t          has_will;
 
-    uint16_t         next_packet_id; /* incremented per QoS-1 outbound */
+    uint16_t         next_packet_id; /* incremented per QoS-1/2 outbound */
     inflight_t       inflight[CLIENT_INFLIGHT_MAX];
+    qos2_in_t        qos2_in[CLIENT_QOS2_IN_MAX]; /* inbound QoS-2 dedup table */
 
     uint8_t          recv_buf[CLIENT_RECV_BUF_SIZE];
     size_t           recv_len;
@@ -60,7 +69,7 @@ void client_free(client_t *c);
 void client_thread_fn(void *p1, void *p2, void *p3);
 int  client_send(client_t *c, const uint8_t *buf, size_t len);
 void client_disconnect(client_t *c);
-void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len);
+void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len, uint8_t qos);
 void client_inflight_ack(client_t *c, uint16_t id);
 void client_inflight_retry(client_t *c);
 

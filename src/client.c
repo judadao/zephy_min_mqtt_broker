@@ -107,6 +107,21 @@ void client_free(client_t *c)
         topic_publish(&c->will);
         c->has_will = 0;
     }
+    if (!c->clean_session) {
+        /* persist subscriptions so offline delivery works on next publish */
+        char    filters[SESSION_SUB_MAX][MQTT_TOPIC_MAX];
+        uint8_t qos[SESSION_SUB_MAX];
+        uint8_t count = (uint8_t)topic_get_client_subs(c, filters, qos,
+                                                        SESSION_SUB_MAX);
+        session_t *s = session_find(c->client_id);
+        if (!s) {
+            s = session_create(c->client_id);
+        }
+        if (s) {
+            session_save_subs(s, (const char (*)[MQTT_TOPIC_MAX])filters,
+                              qos, count);
+        }
+    }
     topic_unsubscribe_all(c);
     if (c->clean_session) {
         session_delete(c->client_id);
@@ -161,6 +176,51 @@ void client_thread_fn(void *p1, void *p2, void *p3)
                 client_inflight_ack(c, ack_id);
             }
             break;
+        case MQTT_PUBREC:
+            /* outbound QoS 2: subscriber received our PUBLISH → send PUBREL */
+            if (pkt.buf_len >= 2) {
+                uint16_t rid = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
+                    if (!c->inflight[i].in_use ||
+                        c->inflight[i].packet_id != rid ||
+                        c->inflight[i].qos != 2 ||
+                        c->inflight[i].waiting_pubcomp) {
+                        continue;
+                    }
+                    uint8_t rel[4];
+                    int rlen = packet_build_pubrel(rid, rel, sizeof(rel));
+                    client_send(c, rel, (size_t)rlen);
+                    c->inflight[i].waiting_pubcomp = 1;
+                    c->inflight[i].sent_at_ms      = plat_uptime_ms();
+                    memcpy(c->inflight[i].buf, rel, (size_t)rlen);
+                    c->inflight[i].len = (uint16_t)rlen;
+                    break;
+                }
+            }
+            break;
+        case MQTT_PUBREL:
+            /* inbound QoS 2: publisher releasing → deliver completed, send PUBCOMP */
+            if (pkt.buf_len >= 2) {
+                uint16_t rid = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
+                    if (c->qos2_in[i].in_use &&
+                        c->qos2_in[i].packet_id == rid) {
+                        c->qos2_in[i].in_use = 0;
+                        break;
+                    }
+                }
+                uint8_t comp[4];
+                int clen = packet_build_pubcomp(rid, comp, sizeof(comp));
+                client_send(c, comp, (size_t)clen);
+            }
+            break;
+        case MQTT_PUBCOMP:
+            /* outbound QoS 2: subscriber completed → clear inflight */
+            if (pkt.buf_len >= 2) {
+                uint16_t cid = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                client_inflight_ack(c, cid);
+            }
+            break;
         default:
             LOG_WRN("client[%d] unknown packet type 0x%02x", c->slot, type);
             break;
@@ -190,19 +250,22 @@ void client_disconnect(client_t *c)
 
 /* ---------- QoS-1 in-flight queue ---------- */
 
-void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len)
+void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf,
+                           uint16_t len, uint8_t qos)
 {
     for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
         if (!c->inflight[i].in_use) {
-            c->inflight[i].packet_id  = id;
-            c->inflight[i].len        = len;
-            c->inflight[i].sent_at_ms = plat_uptime_ms();
-            c->inflight[i].in_use     = 1;
+            c->inflight[i].packet_id       = id;
+            c->inflight[i].len             = len;
+            c->inflight[i].sent_at_ms      = plat_uptime_ms();
+            c->inflight[i].in_use          = 1;
+            c->inflight[i].qos             = qos;
+            c->inflight[i].waiting_pubcomp = 0;
             memcpy(c->inflight[i].buf, buf, len);
             return;
         }
     }
-    LOG_WRN("client[%d] inflight table full, dropping QoS-1 id=%u", c->slot, id);
+    LOG_WRN("client[%d] inflight full, dropping QoS-%d id=%u", c->slot, qos, id);
 }
 
 void client_inflight_ack(client_t *c, uint16_t id)
@@ -227,9 +290,14 @@ void client_inflight_retry(client_t *c)
         if (now - c->inflight[i].sent_at_ms < CLIENT_INFLIGHT_RETRY_MS) {
             continue;
         }
-        c->inflight[i].buf[0] |= 0x08; /* set DUP flag */
+        /* DUP flag applies to PUBLISH retransmit only, not PUBREL */
+        if (!(c->inflight[i].qos == 2 && c->inflight[i].waiting_pubcomp)) {
+            c->inflight[i].buf[0] |= 0x08;
+        }
         c->inflight[i].sent_at_ms = now;
-        LOG_DBG("client[%d] retransmit QoS-1 id=%u", c->slot, c->inflight[i].packet_id);
+        LOG_DBG("client[%d] retransmit QoS-%d id=%u%s", c->slot,
+                c->inflight[i].qos, c->inflight[i].packet_id,
+                c->inflight[i].waiting_pubcomp ? " (PUBREL)" : "");
         client_send(c, c->inflight[i].buf, c->inflight[i].len);
     }
 }
@@ -333,13 +401,14 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
         c->will.retain      = conn.will_retain;
     }
 
-    uint8_t session_present = 0;
+    uint8_t    session_present = 0;
+    session_t *sess            = NULL;
     if (!conn.clean_session) {
-        session_t *s = session_find(conn.client_id);
-        if (s) {
+        sess = session_find(conn.client_id);
+        if (sess) {
             session_present = 1;
         } else {
-            session_create(conn.client_id);
+            sess = session_create(conn.client_id);
         }
     }
 
@@ -349,6 +418,15 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     /* 5-second tick for keepalive enforcement and QoS-1 in-flight retry */
     struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
     plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    /* restore subscriptions and drain queued messages for persistent session */
+    if (session_present && sess) {
+        for (int i = 0; i < sess->sub_count; i++) {
+            topic_subscribe(c, sess->sub_filters[i], sess->sub_qos[i]);
+        }
+        sess->offline = 0;
+        session_drain(sess, c);
+    }
 
     LOG_INF("client[%d] CONNECT id=%s clean=%d keepalive=%us",
             c->slot, c->client_id, c->clean_session, c->keepalive);
@@ -365,6 +443,32 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
     }
 
     LOG_DBG("client[%d] PUBLISH topic=%s qos=%d", c->slot, pub.topic, pub.qos);
+
+    if (pub.qos == 2) {
+        /* check for duplicate before delivering */
+        int dup = 0;
+        for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
+            if (c->qos2_in[i].in_use &&
+                c->qos2_in[i].packet_id == pub.packet_id) {
+                dup = 1;
+                break;
+            }
+        }
+        if (!dup) {
+            /* store packet_id for dedup, then deliver */
+            for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
+                if (!c->qos2_in[i].in_use) {
+                    c->qos2_in[i].packet_id = pub.packet_id;
+                    c->qos2_in[i].in_use    = 1;
+                    break;
+                }
+            }
+            topic_publish(&pub);
+        }
+        int len = packet_build_pubrec(pub.packet_id, ack, sizeof(ack));
+        client_send(c, ack, (size_t)len);
+        return;
+    }
 
     topic_publish(&pub);
 

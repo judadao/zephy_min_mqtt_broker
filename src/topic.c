@@ -2,6 +2,7 @@
 #include "platform/platform.h"
 #include "topic.h"
 #include "client.h"
+#include "session.h"
 
 LOG_MODULE_REGISTER(mqtt_topic, LOG_LEVEL_DBG);
 
@@ -217,12 +218,32 @@ int topic_publish(const mqtt_publish_t *pub)
             client_send(subs[i].client, buf, (size_t)len);
             if (out.qos > 0) {
                 client_inflight_store(subs[i].client, out.packet_id,
-                                      buf, (uint16_t)len);
+                                      buf, (uint16_t)len, out.qos);
             }
         }
     }
     plat_mutex_unlock(&topic_lock);
+
+    /* queue for offline persistent-session subscribers (QoS 0 skipped inside) */
+    session_offline_publish(pub, topic_match);
     return 0;
+}
+
+int topic_get_client_subs(struct client *c,
+                           char out[][MQTT_TOPIC_MAX],
+                           uint8_t *out_qos, uint8_t max)
+{
+    plat_mutex_lock(&topic_lock);
+    int n = 0;
+    for (int i = 0; i < TOPIC_MAX_SUBS && (uint8_t)n < max; i++) {
+        if (subs[i].in_use && subs[i].client == c) {
+            strncpy(out[n], subs[i].filter, MQTT_TOPIC_MAX - 1);
+            out_qos[n] = subs[i].qos;
+            n++;
+        }
+    }
+    plat_mutex_unlock(&topic_lock);
+    return n;
 }
 
 void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)

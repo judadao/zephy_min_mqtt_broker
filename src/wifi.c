@@ -16,12 +16,43 @@ LOG_MODULE_REGISTER(mqtt_wifi, LOG_LEVEL_INF);
 
 #define WIFI_CONNECT_TIMEOUT_S  30
 #define WIFI_IP_TIMEOUT_S       30
+#define WIFI_RECONNECT_DELAY_S   5
 
 static K_SEM_DEFINE(sem_wifi_connected, 0, 1);
 static K_SEM_DEFINE(sem_ip_obtained,    0, 1);
 
 static struct net_mgmt_event_callback wifi_cb;
 static struct net_mgmt_event_callback ipv4_cb;
+
+static void reconnect_work_fn(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(reconnect_work, reconnect_work_fn);
+
+/* forward declarations for functions defined below */
+static int connect_wifi(struct net_if *iface);
+static int setup_ip(struct net_if *iface);
+
+static void reconnect_work_fn(struct k_work *work)
+{
+    ARG_UNUSED(work);
+    struct net_if *iface = net_if_get_default();
+    if (!iface) {
+        k_work_schedule(&reconnect_work, K_SECONDS(WIFI_RECONNECT_DELAY_S));
+        return;
+    }
+    LOG_INF("WiFi reconnecting...");
+    k_sem_reset(&sem_wifi_connected);
+    k_sem_reset(&sem_ip_obtained);
+    int rc = connect_wifi(iface);
+    if (rc == 0) {
+        rc = setup_ip(iface);
+    }
+    if (rc != 0) {
+        LOG_WRN("reconnect failed (%d), retry in %ds", rc, WIFI_RECONNECT_DELAY_S);
+        k_work_schedule(&reconnect_work, K_SECONDS(WIFI_RECONNECT_DELAY_S));
+    } else {
+        LOG_INF("WiFi reconnected");
+    }
+}
 
 static void on_wifi_event(struct net_mgmt_event_callback *cb,
                           uint32_t event, struct net_if *iface)
@@ -38,7 +69,8 @@ static void on_wifi_event(struct net_mgmt_event_callback *cb,
         LOG_INF("WiFi associated");
         k_sem_give(&sem_wifi_connected);
     } else if (event == NET_EVENT_WIFI_DISCONNECT_RESULT) {
-        LOG_WRN("WiFi disconnected");
+        LOG_WRN("WiFi disconnected — reconnecting in %ds", WIFI_RECONNECT_DELAY_S);
+        k_work_schedule(&reconnect_work, K_SECONDS(WIFI_RECONNECT_DELAY_S));
     }
 }
 

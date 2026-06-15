@@ -33,4 +33,9 @@ void topic_unsubscribe_all(struct client *c);
 int  topic_publish(const mqtt_publish_t *pub);
 void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos);
 
+/* write up to max of client c's subscriptions into out/out_qos; returns count */
+int  topic_get_client_subs(struct client *c,
+                            char out[][MQTT_TOPIC_MAX],
+                            uint8_t *out_qos, uint8_t max);
+
 #endif /* TOPIC_H */
