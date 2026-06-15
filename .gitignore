@@ -1,10 +1,7 @@
 build/
-out/
+build_out/
 env.sh
 .dockerignore
 mqtt_broker
 mqtt_cli
 prj.conf
-firmware/*.bin
-firmware/*.elf
-firmware/*.map

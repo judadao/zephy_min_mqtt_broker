@@ -17,24 +17,40 @@ Not implemented: QoS 2, TLS, WebSocket.
 
 ---
 
+## Build Output
+
+All build artifacts land in `build_out/` regardless of platform:
+
+| File | Source |
+|------|--------|
+| `build_out/mqtt_broker` | Linux broker binary |
+| `build_out/mqtt_cli` | Linux CLI tool |
+| `build_out/zephyr.bin` | ESP32 flashable image |
+| `build_out/zephyr.elf` | ESP32 ELF (for debugging) |
+| `build_out/zephyr_final.map` | Linker map |
+
+`build_out/` is gitignored.
+
+---
+
 ## Quick Start — Linux
 
 Build and test locally with no Zephyr toolchain required.
 
 ```bash
-# build broker + CLI tool
+# build broker + CLI tool  →  build_out/mqtt_broker, build_out/mqtt_cli
 make -f Makefile.linux
 
 # start broker (listens on :1883)
-./mqtt_broker
+./build_out/mqtt_broker
 
 # subscribe (another terminal — Ctrl-C to stop)
-./mqtt_cli sub -t "test/#"
+./build_out/mqtt_cli sub -t "test/#"
 
 # publish
-./mqtt_cli pub -t test/hello -m "world"
-./mqtt_cli pub -t test/temp  -m "23.5" -q 1   # QoS 1
-./mqtt_cli pub -t test/keep  -m "hi"   -r      # retained
+./build_out/mqtt_cli pub -t test/hello -m "world"
+./build_out/mqtt_cli pub -t test/temp  -m "23.5" -q 1   # QoS 1
+./build_out/mqtt_cli pub -t test/keep  -m "hi"   -r      # retained
 
 # run automated test suite (12 tests)
 ./scripts/test_broker.sh
@@ -113,7 +129,7 @@ BOARD=esp32s3 ./docker-build.sh
 REBUILD_ENV=1 ./docker-build.sh
 ```
 
-Firmware lands in `./firmware/` (`zephyr.bin`, `zephyr.elf`).
+Firmware lands in `./build_out/` (`zephyr.bin`, `zephyr.elf`).
 
 Flash from host after build:
 

@@ -38,9 +38,9 @@ docker run --rm \
     "$ENV_IMAGE" \
     west build -b "$BOARD" /workspace
 
-# ── copy flashable artifacts to firmware/ ────────────────────────────────────
-mkdir -p "$SCRIPT_DIR/firmware"
-cp "$SCRIPT_DIR/build/zephyr/zephyr.bin"       "$SCRIPT_DIR/firmware/"
-cp "$SCRIPT_DIR/build/zephyr/zephyr.elf"       "$SCRIPT_DIR/firmware/"
-cp "$SCRIPT_DIR/build/zephyr/zephyr_final.map" "$SCRIPT_DIR/firmware/"
-_info "Done. Firmware in $SCRIPT_DIR/firmware/"
+# ── copy flashable artifacts to build_out/ ─────────────────────────────────────────
+mkdir -p "$SCRIPT_DIR/build_out"
+cp "$SCRIPT_DIR/build/zephyr/zephyr.bin"       "$SCRIPT_DIR/build_out/"
+cp "$SCRIPT_DIR/build/zephyr/zephyr.elf"       "$SCRIPT_DIR/build_out/"
+cp "$SCRIPT_DIR/build/zephyr/zephyr_final.map" "$SCRIPT_DIR/build_out/"
+_info "Done. Firmware in $SCRIPT_DIR/build_out/"
