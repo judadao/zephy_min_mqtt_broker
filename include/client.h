@@ -1,0 +1,44 @@
+#ifndef CLIENT_H
+#define CLIENT_H
+
+#include <zephyr/kernel.h>
+#include "packet.h"
+
+#define CLIENT_RECV_BUF_SIZE  (MQTT_MAX_PACKET_SIZE + 8)
+#define CLIENT_STACK_SIZE     2048
+
+typedef enum {
+    CLIENT_STATE_FREE = 0,
+    CLIENT_STATE_CONNECTED,
+    CLIENT_STATE_DISCONNECTING,
+} client_state_t;
+
+typedef struct client {
+    int              fd;
+    client_state_t   state;
+    uint8_t          slot;          /* index in pool, stable for lifetime */
+
+    char             client_id[MQTT_CLIENT_ID_MAX];
+    uint8_t          clean_session;
+    uint16_t         keepalive;     /* seconds; 0 = disabled */
+    int64_t          last_seen_ms;  /* k_uptime_get() at last packet */
+
+    mqtt_publish_t   will;
+    uint8_t          has_will;
+
+    uint16_t         next_packet_id; /* incremented per QoS-1 outbound */
+
+    uint8_t          recv_buf[CLIENT_RECV_BUF_SIZE];
+    size_t           recv_len;
+
+    struct k_thread  thread;
+} client_t;
+
+void client_pool_init(void);
+int  client_alloc(int fd);          /* returns slot index or -1 */
+void client_free(client_t *c);
+void client_thread_fn(void *p1, void *p2, void *p3);
+int  client_send(client_t *c, const uint8_t *buf, size_t len);
+void client_disconnect(client_t *c);
+
+#endif /* CLIENT_H */
