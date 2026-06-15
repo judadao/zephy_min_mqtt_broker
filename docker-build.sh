@@ -19,9 +19,9 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # ── build env image only when needed ─────────────────────────────────────────
-if [[ "${REBUILD_ENV:-0}" == "1" ]] || ! sudo docker image inspect "$ENV_IMAGE" &>/dev/null; then
+if [[ "${REBUILD_ENV:-0}" == "1" ]] || ! docker image inspect "$ENV_IMAGE" &>/dev/null; then
     _info "Building Zephyr env image (first run ~30 min)..."
-    sudo docker build \
+    docker build \
         --platform linux/amd64 \
         -t "$ENV_IMAGE" \
         -f "$SCRIPT_DIR/Dockerfile.env" \
@@ -32,7 +32,7 @@ fi
 
 # ── run west build with project source mounted ────────────────────────────────
 _info "Running west build -b $BOARD ..."
-sudo docker run --rm \
+docker run --rm \
     --platform linux/amd64 \
     -v "$SCRIPT_DIR:/workspace" \
     "$ENV_IMAGE" \
