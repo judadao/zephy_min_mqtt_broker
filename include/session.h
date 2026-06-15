@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "packet.h"
+#include "broker.h"
 
 #define SESSION_MAX  MQTT_MAX_CLIENTS
 

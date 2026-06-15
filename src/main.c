@@ -1,6 +1,4 @@
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
-
+#include "platform/platform.h"
 #include "broker.h"
 #include "client.h"
 
@@ -10,7 +8,7 @@ int main(void)
 {
     LOG_INF("MQTT minimal broker starting");
 
-    /* TODO: init WiFi and wait for DHCP before calling broker_init()  */
+    /* TODO: init WiFi and wait for DHCP before calling broker_init() (Zephyr/ESP32 only) */
 
     client_pool_init();
 

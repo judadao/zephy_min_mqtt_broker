@@ -1,6 +1,5 @@
 #include <string.h>
-#include <zephyr/logging/log.h>
-
+#include "platform/platform.h"
 #include "packet.h"
 
 LOG_MODULE_REGISTER(mqtt_packet, LOG_LEVEL_DBG);

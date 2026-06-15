@@ -11,4 +11,4 @@ target_sources(app PRIVATE
     src/session.c
 )
 
-target_include_directories(app PRIVATE include)
+target_include_directories(app PRIVATE include ${CMAKE_CURRENT_SOURCE_DIR})

@@ -1,6 +1,4 @@
-#include <zephyr/kernel.h>
-#include <zephyr/net/socket.h>
-#include <zephyr/logging/log.h>
+#include "platform/platform.h"
 #include <errno.h>
 
 #include "broker.h"
@@ -22,24 +20,24 @@ int broker_init(void)
     topic_init();
     session_init();
 
-    listen_fd = zsock_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    listen_fd = plat_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listen_fd < 0) {
         LOG_ERR("socket: %d", errno);
         return -errno;
     }
 
     int opt = 1;
-    zsock_setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    plat_setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if (zsock_bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    if (plat_bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_ERR("bind: %d", errno);
-        zsock_close(listen_fd);
+        plat_close(listen_fd);
         return -errno;
     }
 
-    if (zsock_listen(listen_fd, MQTT_MAX_CLIENTS) < 0) {
+    if (plat_listen(listen_fd, MQTT_MAX_CLIENTS) < 0) {
         LOG_ERR("listen: %d", errno);
-        zsock_close(listen_fd);
+        plat_close(listen_fd);
         return -errno;
     }
 
@@ -53,7 +51,7 @@ void broker_run(void)
         struct sockaddr_in peer;
         socklen_t peer_len = sizeof(peer);
 
-        int fd = zsock_accept(listen_fd, (struct sockaddr *)&peer, &peer_len);
+        int fd = plat_accept(listen_fd, (struct sockaddr *)&peer, &peer_len);
         if (fd < 0) {
             LOG_WRN("accept: %d", errno);
             continue;
@@ -63,7 +61,7 @@ void broker_run(void)
 
         if (client_alloc(fd) < 0) {
             LOG_WRN("No free client slots, dropping fd=%d", fd);
-            zsock_close(fd);
+            plat_close(fd);
         }
     }
 }

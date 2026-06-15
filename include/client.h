@@ -1,7 +1,7 @@
 #ifndef CLIENT_H
 #define CLIENT_H
 
-#include <zephyr/kernel.h>
+#include "platform/platform.h"
 #include "packet.h"
 
 #define CLIENT_RECV_BUF_SIZE  (MQTT_MAX_PACKET_SIZE + 8)
@@ -31,7 +31,7 @@ typedef struct client {
     uint8_t          recv_buf[CLIENT_RECV_BUF_SIZE];
     size_t           recv_len;
 
-    struct k_thread  thread;
+    plat_thread_t    thread;
 } client_t;
 
 void client_pool_init(void);

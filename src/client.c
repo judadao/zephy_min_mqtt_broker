@@ -1,6 +1,4 @@
-#include <zephyr/kernel.h>
-#include <zephyr/net/socket.h>
-#include <zephyr/logging/log.h>
+#include "platform/platform.h"
 #include <string.h>
 #include <errno.h>
 
@@ -13,8 +11,12 @@
 LOG_MODULE_REGISTER(mqtt_client, LOG_LEVEL_DBG);
 
 static client_t clients[MQTT_MAX_CLIENTS];
+
+#ifdef __ZEPHYR__
 static K_THREAD_STACK_ARRAY_DEFINE(client_stacks, MQTT_MAX_CLIENTS, CLIENT_STACK_SIZE);
-static K_MUTEX_DEFINE(pool_lock);
+#endif
+
+PLAT_MUTEX_DEFINE(pool_lock);
 
 /* ---------- internal helpers ---------- */
 
@@ -41,7 +43,7 @@ void client_pool_init(void)
 
 int client_alloc(int fd)
 {
-    k_mutex_lock(&pool_lock, K_FOREVER);
+    plat_mutex_lock(&pool_lock);
 
     client_t *c = NULL;
     for (int i = 0; i < MQTT_MAX_CLIENTS; i++) {
@@ -52,7 +54,7 @@ int client_alloc(int fd)
     }
 
     if (!c) {
-        k_mutex_unlock(&pool_lock);
+        plat_mutex_unlock(&pool_lock);
         return -1;
     }
 
@@ -61,21 +63,25 @@ int client_alloc(int fd)
     c->fd    = fd;
     c->state = CLIENT_STATE_CONNECTED;
 
+#ifdef __ZEPHYR__
     k_thread_create(&c->thread,
                     client_stacks[c->slot],
                     K_THREAD_STACK_SIZEOF(client_stacks[c->slot]),
                     client_thread_fn,
                     c, NULL, NULL,
                     5, 0, K_NO_WAIT);
+#else
+    plat_thread_spawn(c);
+#endif
 
-    k_mutex_unlock(&pool_lock);
+    plat_mutex_unlock(&pool_lock);
     return c->slot;
 }
 
 void client_free(client_t *c)
 {
     if (c->fd >= 0) {
-        zsock_close(c->fd);
+        plat_close(c->fd);
         c->fd = -1;
     }
     topic_unsubscribe_all(c);
@@ -104,7 +110,7 @@ void client_thread_fn(void *p1, void *p2, void *p3)
             break;
         }
 
-        c->last_seen_ms = k_uptime_get();
+        c->last_seen_ms = plat_uptime_ms();
 
         uint8_t type = pkt.type_flags & 0xF0;
 
@@ -129,7 +135,7 @@ void client_thread_fn(void *p1, void *p2, void *p3)
 
 int client_send(client_t *c, const uint8_t *buf, size_t len)
 {
-    ssize_t sent = zsock_send(c->fd, buf, len, 0);
+    ssize_t sent = plat_send(c->fd, buf, len, 0);
     if (sent < 0 || (size_t)sent != len) {
         LOG_WRN("client[%d] send error: %d", c->slot, errno);
         c->state = CLIENT_STATE_DISCONNECTING;
@@ -148,7 +154,7 @@ static int recv_exact(int fd, uint8_t *buf, size_t n)
 {
     size_t done = 0;
     while (done < n) {
-        ssize_t r = zsock_recv(fd, buf + done, n - done, 0);
+        ssize_t r = plat_recv(fd, buf + done, n - done, 0);
         if (r <= 0) {
             return -1;
         }
@@ -162,13 +168,11 @@ static int recv_packet(client_t *c, mqtt_packet_t *out)
 {
     uint8_t header[5];
 
-    /* read first byte (type + flags) */
     if (recv_exact(c->fd, header, 1) < 0) {
         return -1;
     }
     out->type_flags = header[0];
 
-    /* decode variable-length remaining-length (up to 4 bytes) */
     uint32_t rlen  = 0;
     size_t   rbytes = 0;
     uint8_t  byte;
@@ -198,6 +202,8 @@ static int recv_packet(client_t *c, mqtt_packet_t *out)
         return -1;
     }
     out->buf_len = rlen;
+
+    ARG_UNUSED(rbytes);
     return 0;
 }
 
@@ -263,7 +269,6 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
         int len = packet_build_puback(pub.packet_id, ack, sizeof(ack));
         client_send(c, ack, (size_t)len);
     }
-    /* QoS 2: not implemented in minimal build */
 }
 
 static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
@@ -318,6 +323,6 @@ static void handle_pingreq(client_t *c)
 static void handle_disconnect(client_t *c)
 {
     LOG_INF("client[%d] DISCONNECT id=%s", c->slot, c->client_id);
-    c->has_will = 0; /* clean disconnect: suppress will */
+    c->has_will = 0;
     c->state    = CLIENT_STATE_DISCONNECTING;
 }

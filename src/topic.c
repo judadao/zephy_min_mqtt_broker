@@ -1,7 +1,5 @@
 #include <string.h>
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
-
+#include "platform/platform.h"
 #include "topic.h"
 #include "client.h"
 
@@ -24,7 +22,7 @@ typedef struct {
 
 static sub_entry_t    subs[TOPIC_MAX_SUBS];
 static retain_entry_t retains[TOPIC_MAX_SUBS];
-static K_MUTEX_DEFINE(topic_lock);
+PLAT_MUTEX_DEFINE(topic_lock);
 
 void topic_init(void)
 {
@@ -66,14 +64,14 @@ static int topic_match(const char *filter, const char *topic)
 
 int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
 {
-    k_mutex_lock(&topic_lock, K_FOREVER);
+    plat_mutex_lock(&topic_lock);
 
     /* update qos if already subscribed */
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c &&
             strcmp(subs[i].filter, filter) == 0) {
             subs[i].qos = qos;
-            k_mutex_unlock(&topic_lock);
+            plat_mutex_unlock(&topic_lock);
             return 0;
         }
     }
@@ -85,7 +83,7 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             strncpy(subs[i].filter, filter, sizeof(subs[i].filter) - 1);
             subs[i].qos    = qos;
             subs[i].in_use = 1;
-            k_mutex_unlock(&topic_lock);
+            plat_mutex_unlock(&topic_lock);
 
             /* deliver any matching retained message */
             for (int j = 0; j < TOPIC_MAX_SUBS; j++) {
@@ -108,13 +106,13 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
         }
     }
 
-    k_mutex_unlock(&topic_lock);
+    plat_mutex_unlock(&topic_lock);
     return -1; /* table full */
 }
 
 int topic_unsubscribe(struct client *c, const char *filter)
 {
-    k_mutex_lock(&topic_lock, K_FOREVER);
+    plat_mutex_lock(&topic_lock);
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c &&
             strcmp(subs[i].filter, filter) == 0) {
@@ -122,26 +120,26 @@ int topic_unsubscribe(struct client *c, const char *filter)
             break;
         }
     }
-    k_mutex_unlock(&topic_lock);
+    plat_mutex_unlock(&topic_lock);
     return 0;
 }
 
 void topic_unsubscribe_all(struct client *c)
 {
-    k_mutex_lock(&topic_lock, K_FOREVER);
+    plat_mutex_lock(&topic_lock);
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c) {
             subs[i].in_use = 0;
         }
     }
-    k_mutex_unlock(&topic_lock);
+    plat_mutex_unlock(&topic_lock);
 }
 
 int topic_publish(const mqtt_publish_t *pub)
 {
     /* store/clear retained message */
     if (pub->retain) {
-        k_mutex_lock(&topic_lock, K_FOREVER);
+        plat_mutex_lock(&topic_lock);
         int found = -1;
         for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
             if (retains[i].in_use &&
@@ -174,11 +172,11 @@ int topic_publish(const mqtt_publish_t *pub)
                 retains[slot].in_use      = 1;
             }
         }
-        k_mutex_unlock(&topic_lock);
+        plat_mutex_unlock(&topic_lock);
     }
 
     /* fan-out to matching subscribers */
-    k_mutex_lock(&topic_lock, K_FOREVER);
+    plat_mutex_lock(&topic_lock);
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (!subs[i].in_use) {
             continue;
@@ -198,6 +196,6 @@ int topic_publish(const mqtt_publish_t *pub)
             client_send(subs[i].client, buf, (size_t)len);
         }
     }
-    k_mutex_unlock(&topic_lock);
+    plat_mutex_unlock(&topic_lock);
     return 0;
 }

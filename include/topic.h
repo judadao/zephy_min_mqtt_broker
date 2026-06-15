@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "packet.h"
+#include "broker.h"
 
 /* forward declaration — include client.h in .c files */
 struct client;

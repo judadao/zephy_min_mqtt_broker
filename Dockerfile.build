@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 ARG SDK_VERSION=0.16.8
 
@@ -17,10 +17,8 @@ ENV PATH="/opt/zephyr-venv/bin:$PATH"
 RUN pip install --no-cache-dir west
 
 # ── Zephyr workspace (heavy layer — cached unless SDK_VERSION changes) ───────
-RUN west init /opt/zephyrproject \
-    && cd /opt/zephyrproject \
-    && west update \
-    && west zephyr-export
+RUN west init /opt/zephyrproject --mr v3.7.0
+RUN cd /opt/zephyrproject && west update && west zephyr-export
 RUN pip install --no-cache-dir \
         -r /opt/zephyrproject/zephyr/scripts/requirements.txt
 

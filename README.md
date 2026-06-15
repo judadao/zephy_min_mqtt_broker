@@ -73,9 +73,50 @@ No other source files or include paths need to be added to your `CMakeLists.txt`
 
 ---
 
+## Docker Build (zero host setup)
+
+No Zephyr toolchain or SDK required on the host — everything runs inside a container.
+
+### Requirements
+
+- Docker (with `linux/amd64` support; on Apple Silicon use Docker Desktop with Rosetta)
+
+### First run
+
+```bash
+./docker-build.sh
+```
+
+The first run builds the Docker image (downloads Zephyr v3.7.0 + ESP32 toolchain — allow ~15 min). Subsequent runs skip the image build and go straight to `west build`.
+
+Build artifacts land in `./build/` on the host when done.
+
+### Iterating on source
+
+The source directory is **mounted** into the container (not copied), so you can edit files and rebuild immediately — no need to rebuild the image:
+
+```bash
+# edit src/broker.c  (or any source file)
+./docker-build.sh   # re-runs west build with your latest changes
+```
+
+### Targeting a different board
+
+```bash
+BOARD=esp32s3 ./docker-build.sh
+```
+
+### Flash (still requires host tools)
+
+```bash
+west flash          # run on host after the Docker build produces ./build/
+```
+
+---
+
 ## Standalone Build (ESP32 app)
 
-Use this when the broker is the entire application (not embedded into another project).
+Use this when you already have a Zephyr environment set up on the host.
 
 ### Requirements
 
