@@ -1,6 +1,7 @@
 #include "platform/platform.h"
 #include "broker.h"
 #include "client.h"
+#include "wifi.h"
 
 LOG_MODULE_REGISTER(mqtt_main, LOG_LEVEL_INF);
 
@@ -8,7 +9,12 @@ int main(void)
 {
     LOG_INF("MQTT minimal broker starting");
 
-    /* TODO: init WiFi and wait for DHCP before calling broker_init() (Zephyr/ESP32 only) */
+#ifdef __ZEPHYR__
+    if (wifi_connect() != 0) {
+        LOG_ERR("WiFi init failed, halting");
+        return -1;
+    }
+#endif
 
     client_pool_init();
 

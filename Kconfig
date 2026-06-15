@@ -1,0 +1,71 @@
+mainmenu "MQTT Minimal Broker"
+
+source "Kconfig.zephyr"
+
+menu "WiFi"
+
+config MQTT_WIFI_SSID
+    string "WiFi SSID"
+    default ""
+    help
+      WiFi network name (2.4 GHz, WPA2-PSK).
+
+config MQTT_WIFI_PASSWORD
+    string "WiFi Password"
+    default ""
+    help
+      WPA2-PSK passphrase for the above SSID.
+
+choice MQTT_WIFI_IP_MODE
+    prompt "IP address mode"
+    default MQTT_WIFI_DHCP
+
+config MQTT_WIFI_DHCP
+    bool "DHCP"
+    help
+      Obtain IP address automatically via DHCP.
+
+config MQTT_WIFI_STATIC
+    bool "Static IP"
+    help
+      Assign a fixed IP address at boot.
+
+endchoice
+
+if MQTT_WIFI_STATIC
+
+config MQTT_WIFI_STATIC_ADDR
+    string "Static IP address"
+    default "192.168.1.100"
+
+config MQTT_WIFI_STATIC_NETMASK
+    string "Netmask"
+    default "255.255.255.0"
+
+config MQTT_WIFI_STATIC_GW
+    string "Gateway"
+    default "192.168.1.1"
+
+endif # MQTT_WIFI_STATIC
+
+endmenu
+
+menu "Auth"
+
+config MQTT_AUTH_ENABLED
+    bool "Require username/password on CONNECT"
+    default n
+
+if MQTT_AUTH_ENABLED
+
+config MQTT_AUTH_USERNAME
+    string "Required username"
+    default "admin"
+
+config MQTT_AUTH_PASSWORD
+    string "Required password"
+    default ""
+
+endif # MQTT_AUTH_ENABLED
+
+endmenu

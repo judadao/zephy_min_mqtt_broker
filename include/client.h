@@ -4,8 +4,18 @@
 #include "platform/platform.h"
 #include "packet.h"
 
-#define CLIENT_RECV_BUF_SIZE  (MQTT_MAX_PACKET_SIZE + 8)
-#define CLIENT_STACK_SIZE     2048
+#define CLIENT_RECV_BUF_SIZE     (MQTT_MAX_PACKET_SIZE + 8)
+#define CLIENT_STACK_SIZE        2048
+#define CLIENT_INFLIGHT_MAX      4
+#define CLIENT_INFLIGHT_RETRY_MS 5000
+
+typedef struct {
+    uint16_t packet_id;
+    uint8_t  buf[MQTT_MAX_PACKET_SIZE + 8];
+    uint16_t len;
+    int64_t  sent_at_ms;
+    uint8_t  in_use;
+} inflight_t;
 
 typedef enum {
     CLIENT_STATE_FREE = 0,
@@ -27,6 +37,7 @@ typedef struct client {
     uint8_t          has_will;
 
     uint16_t         next_packet_id; /* incremented per QoS-1 outbound */
+    inflight_t       inflight[CLIENT_INFLIGHT_MAX];
 
     uint8_t          recv_buf[CLIENT_RECV_BUF_SIZE];
     size_t           recv_len;
@@ -40,5 +51,8 @@ void client_free(client_t *c);
 void client_thread_fn(void *p1, void *p2, void *p3);
 int  client_send(client_t *c, const uint8_t *buf, size_t len);
 void client_disconnect(client_t *c);
+void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len);
+void client_inflight_ack(client_t *c, uint16_t id);
+void client_inflight_retry(client_t *c);
 
 #endif /* CLIENT_H */

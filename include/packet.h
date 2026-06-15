@@ -29,6 +29,8 @@
 #define CONNACK_NOT_AUTHORIZED    0x05
 
 #define MQTT_CLIENT_ID_MAX   24
+#define MQTT_USERNAME_MAX    64
+#define MQTT_PASSWORD_MAX    64
 #define MQTT_TOPIC_MAX       128
 #define MQTT_PAYLOAD_MAX     1024
 #define MQTT_MAX_PACKET_SIZE (MQTT_TOPIC_MAX + MQTT_PAYLOAD_MAX + 64)
@@ -51,6 +53,10 @@ typedef struct {
     uint16_t will_payload_len;
     uint8_t  will_qos;
     uint8_t  will_retain;
+    uint8_t  has_username;
+    uint8_t  has_password;
+    char     username[MQTT_USERNAME_MAX];
+    char     password[MQTT_PASSWORD_MAX];
 } mqtt_connect_t;
 
 typedef struct {

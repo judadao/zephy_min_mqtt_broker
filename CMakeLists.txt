@@ -9,6 +9,7 @@ target_sources(app PRIVATE
     src/packet.c
     src/topic.c
     src/session.c
+    src/wifi.c
 )
 
 target_include_directories(app PRIVATE include ${CMAKE_CURRENT_SOURCE_DIR})

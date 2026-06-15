@@ -2,3 +2,4 @@ build/
 env.sh
 .dockerignore
 mqtt_broker
+prj.conf

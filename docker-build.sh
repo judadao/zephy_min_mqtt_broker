@@ -15,7 +15,7 @@ fi
 
 # ── build image (uses layer cache; only re-runs changed layers) ───────────────
 _info "Building Docker image (first run takes ~30 min)..."
-docker build \
+sudo docker build \
     --platform linux/amd64 \
     -t "$IMAGE" \
     -f "$SCRIPT_DIR/Dockerfile.build" \
@@ -23,7 +23,7 @@ docker build \
 
 # ── run west build with project source mounted ────────────────────────────────
 _info "Running west build -b $BOARD ..."
-docker run --rm \
+sudo docker run --rm \
     --platform linux/amd64 \
     -v "$SCRIPT_DIR:/workspace" \
     "$IMAGE" \

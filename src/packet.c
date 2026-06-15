@@ -104,12 +104,14 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
         return -1;
     }
 
-    uint8_t connect_flags = b[pos++];
-    out->clean_session    = (connect_flags >> 1) & 0x01;
-    uint8_t has_will      = (connect_flags >> 2) & 0x01;
-    out->will_qos         = (connect_flags >> 3) & 0x03;
-    out->will_retain      = (connect_flags >> 5) & 0x01;
-    out->has_will         = has_will;
+    uint8_t connect_flags  = b[pos++];
+    out->clean_session     = (connect_flags >> 1) & 0x01;
+    uint8_t has_will       = (connect_flags >> 2) & 0x01;
+    out->will_qos          = (connect_flags >> 3) & 0x03;
+    out->will_retain       = (connect_flags >> 5) & 0x01;
+    out->has_will          = has_will;
+    out->has_password      = (connect_flags >> 6) & 0x01;
+    out->has_username      = (connect_flags >> 7) & 0x01;
 
     out->keepalive = read_u16(b + pos);
     pos += 2;
@@ -136,7 +138,16 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
         pos += out->will_payload_len;
     }
 
-    /* username / password: parsed but ignored in minimal build */
+    if (out->has_username) {
+        if (read_str(b, len, &pos, out->username, sizeof(out->username)) < 0) {
+            return -1;
+        }
+    }
+    if (out->has_password) {
+        if (read_str(b, len, &pos, out->password, sizeof(out->password)) < 0) {
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -244,7 +255,7 @@ int packet_build_suback(uint16_t packet_id,
                          uint8_t *out, size_t out_cap)
 {
     size_t total = 2 + 2 + count; /* header + remaining-len(1) is oversimplified; use 2 for safety */
-    if (out_cap < 4 + count) {
+    if (out_cap < (size_t)(4 + count)) {
         return -1;
     }
     out[0] = MQTT_SUBACK;

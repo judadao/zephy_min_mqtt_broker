@@ -84,6 +84,11 @@ void client_free(client_t *c)
         plat_close(c->fd);
         c->fd = -1;
     }
+    /* publish will message on unexpected disconnect */
+    if (c->has_will) {
+        topic_publish(&c->will);
+        c->has_will = 0;
+    }
     topic_unsubscribe_all(c);
     if (c->clean_session) {
         session_delete(c->client_id);
@@ -107,6 +112,17 @@ void client_thread_fn(void *p1, void *p2, void *p3)
     while (c->state == CLIENT_STATE_CONNECTED) {
         int rc = recv_packet(c, &pkt);
         if (rc < 0) {
+            if (errno == EAGAIN || errno == ETIMEDOUT) {
+                if (c->keepalive > 0) {
+                    int64_t idle_ms = plat_uptime_ms() - c->last_seen_ms;
+                    if (idle_ms > (int64_t)c->keepalive * 1500) {
+                        LOG_WRN("client[%d] keepalive timeout (id=%s)", c->slot, c->client_id);
+                        break;
+                    }
+                }
+                client_inflight_retry(c);
+                continue;
+            }
             break;
         }
 
@@ -121,7 +137,12 @@ void client_thread_fn(void *p1, void *p2, void *p3)
         case MQTT_UNSUBSCRIBE: handle_unsubscribe(c, &pkt); break;
         case MQTT_PINGREQ:     handle_pingreq(c);           break;
         case MQTT_DISCONNECT:  handle_disconnect(c);        break;
-        case MQTT_PUBACK:      /* TODO: clear in-flight QoS-1 */  break;
+        case MQTT_PUBACK:
+            if (pkt.buf_len >= 2) {
+                uint16_t ack_id = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                client_inflight_ack(c, ack_id);
+            }
+            break;
         default:
             LOG_WRN("client[%d] unknown packet type 0x%02x", c->slot, type);
             break;
@@ -147,6 +168,52 @@ int client_send(client_t *c, const uint8_t *buf, size_t len)
 void client_disconnect(client_t *c)
 {
     c->state = CLIENT_STATE_DISCONNECTING;
+}
+
+/* ---------- QoS-1 in-flight queue ---------- */
+
+void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len)
+{
+    for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
+        if (!c->inflight[i].in_use) {
+            c->inflight[i].packet_id  = id;
+            c->inflight[i].len        = len;
+            c->inflight[i].sent_at_ms = plat_uptime_ms();
+            c->inflight[i].in_use     = 1;
+            memcpy(c->inflight[i].buf, buf, len);
+            return;
+        }
+    }
+    LOG_WRN("client[%d] inflight table full, dropping QoS-1 id=%u", c->slot, id);
+}
+
+void client_inflight_ack(client_t *c, uint16_t id)
+{
+    for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
+        if (c->inflight[i].in_use && c->inflight[i].packet_id == id) {
+            c->inflight[i].in_use = 0;
+            LOG_DBG("client[%d] inflight ack id=%u", c->slot, id);
+            return;
+        }
+    }
+    LOG_WRN("client[%d] PUBACK for unknown id=%u", c->slot, id);
+}
+
+void client_inflight_retry(client_t *c)
+{
+    int64_t now = plat_uptime_ms();
+    for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
+        if (!c->inflight[i].in_use) {
+            continue;
+        }
+        if (now - c->inflight[i].sent_at_ms < CLIENT_INFLIGHT_RETRY_MS) {
+            continue;
+        }
+        c->inflight[i].buf[0] |= 0x08; /* set DUP flag */
+        c->inflight[i].sent_at_ms = now;
+        LOG_DBG("client[%d] retransmit QoS-1 id=%u", c->slot, c->inflight[i].packet_id);
+        client_send(c, c->inflight[i].buf, c->inflight[i].len);
+    }
 }
 
 /* recv exactly n bytes from fd */
@@ -221,7 +288,20 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
-    /* TODO: auth (username/password) */
+#if defined(CONFIG_MQTT_AUTH_ENABLED)
+    if (!conn.has_username || !conn.has_password ||
+        strcmp(conn.username, CONFIG_MQTT_AUTH_USERNAME) != 0 ||
+        strcmp(conn.password, CONFIG_MQTT_AUTH_PASSWORD) != 0) {
+        LOG_WRN("client[%d] auth failed (id=%s user=%s)",
+                c->slot, conn.client_id,
+                conn.has_username ? conn.username : "(none)");
+        uint8_t rej[4];
+        int rlen = packet_build_connack(0, CONNACK_BAD_CREDENTIALS, rej, sizeof(rej));
+        client_send(c, rej, (size_t)rlen);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+#endif
 
     strncpy(c->client_id, conn.client_id, sizeof(c->client_id) - 1);
     c->clean_session = conn.clean_session;
@@ -248,7 +328,12 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     len = packet_build_connack(session_present, CONNACK_ACCEPTED, resp, sizeof(resp));
     client_send(c, resp, (size_t)len);
 
-    LOG_INF("client[%d] CONNECT id=%s clean=%d", c->slot, c->client_id, c->clean_session);
+    /* 5-second tick for keepalive enforcement and QoS-1 in-flight retry */
+    struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
+    plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    LOG_INF("client[%d] CONNECT id=%s clean=%d keepalive=%us",
+            c->slot, c->client_id, c->clean_session, c->keepalive);
 }
 
 static void handle_publish(client_t *c, const mqtt_packet_t *pkt)

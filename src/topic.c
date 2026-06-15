@@ -186,14 +186,25 @@ int topic_publish(const mqtt_publish_t *pub)
         }
 
         mqtt_publish_t out = *pub;
-        out.retain      = 0; /* never forward retain flag to subscribers */
-        out.qos         = out.qos < subs[i].qos ? out.qos : subs[i].qos;
-        out.packet_id   = 0; /* TODO: assign from client->next_packet_id for QoS 1 */
+        out.retain = 0; /* never forward retain flag to subscribers */
+        out.qos    = out.qos < subs[i].qos ? out.qos : subs[i].qos;
+        if (out.qos > 0) {
+            if (++subs[i].client->next_packet_id == 0) {
+                ++subs[i].client->next_packet_id; /* skip 0, invalid per spec */
+            }
+            out.packet_id = subs[i].client->next_packet_id;
+        } else {
+            out.packet_id = 0;
+        }
 
         uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
         int     len = packet_build_publish(&out, buf, sizeof(buf));
         if (len > 0) {
             client_send(subs[i].client, buf, (size_t)len);
+            if (out.qos > 0) {
+                client_inflight_store(subs[i].client, out.packet_id,
+                                      buf, (uint16_t)len);
+            }
         }
     }
     plat_mutex_unlock(&topic_lock);

@@ -1,5 +1,12 @@
 CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -I.
+
+# Optional auth: make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
+ifdef AUTH_USER
+CFLAGS += -DCONFIG_MQTT_AUTH_ENABLED \
+          -DCONFIG_MQTT_AUTH_USERNAME='"$(AUTH_USER)"' \
+          -DCONFIG_MQTT_AUTH_PASSWORD='"$(AUTH_PASS)"'
+endif
 LDFLAGS = -lpthread
 
 SRCS = src/broker.c \
