@@ -395,6 +395,13 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
 
     int len = packet_build_suback(packet_id, return_codes, count, resp, sizeof(resp));
     client_send(c, resp, (size_t)len);
+
+    /* deliver retained messages after SUBACK (spec: retained must not precede SUBACK) */
+    for (int i = 0; i < count; i++) {
+        if (return_codes[i] != 0x80) {
+            topic_deliver_retained(c, topics[i], qos[i]);
+        }
+    }
 }
 
 static void handle_unsubscribe(client_t *c, const mqtt_packet_t *pkt)

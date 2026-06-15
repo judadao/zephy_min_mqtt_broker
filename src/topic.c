@@ -116,24 +116,6 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             subs[i].qos    = qos;
             subs[i].in_use = 1;
             plat_mutex_unlock(&topic_lock);
-
-            /* deliver any matching retained message */
-            for (int j = 0; j < TOPIC_RETAIN_MAX; j++) {
-                if (retains[j].in_use &&
-                    topic_match(filter, retains[j].topic)) {
-                    mqtt_publish_t pub = {0};
-                    strncpy(pub.topic, retains[j].topic, sizeof(pub.topic) - 1);
-                    memcpy(pub.payload, retains[j].payload, retains[j].payload_len);
-                    pub.payload_len = retains[j].payload_len;
-                    pub.qos         = qos < retains[j].qos ? qos : retains[j].qos;
-                    pub.retain      = 1;
-                    uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
-                    int len = packet_build_publish(&pub, buf, sizeof(buf));
-                    if (len > 0) {
-                        client_send(c, buf, (size_t)len);
-                    }
-                }
-            }
             return 0;
         }
     }
@@ -241,4 +223,26 @@ int topic_publish(const mqtt_publish_t *pub)
     }
     plat_mutex_unlock(&topic_lock);
     return 0;
+}
+
+void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
+{
+    plat_mutex_lock(&topic_lock);
+    for (int j = 0; j < TOPIC_RETAIN_MAX; j++) {
+        if (!retains[j].in_use || !topic_match(filter, retains[j].topic)) {
+            continue;
+        }
+        mqtt_publish_t pub = {0};
+        strncpy(pub.topic, retains[j].topic, sizeof(pub.topic) - 1);
+        memcpy(pub.payload, retains[j].payload, retains[j].payload_len);
+        pub.payload_len = retains[j].payload_len;
+        pub.qos         = qos < retains[j].qos ? qos : retains[j].qos;
+        pub.retain      = 1;
+        uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
+        int len = packet_build_publish(&pub, buf, sizeof(buf));
+        if (len > 0) {
+            client_send(c, buf, (size_t)len);
+        }
+    }
+    plat_mutex_unlock(&topic_lock);
 }

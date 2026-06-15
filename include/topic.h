@@ -31,5 +31,6 @@ int  topic_subscribe(struct client *c, const char *filter, uint8_t qos);
 int  topic_unsubscribe(struct client *c, const char *filter);
 void topic_unsubscribe_all(struct client *c);
 int  topic_publish(const mqtt_publish_t *pub);
+void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos);
 
 #endif /* TOPIC_H */
