@@ -20,21 +20,82 @@ A minimal MQTT v3.1.1 broker written in C for [Zephyr RTOS](https://zephyrprojec
 - Keepalive timeout enforcement (tracked, timer not wired up)
 - WebSocket transport
 
-## Requirements
+---
+
+## Usage as a Zephyr Module (recommended)
+
+Include this repo as a Zephyr module in any existing Zephyr project — no build-system changes needed beyond adding it to `west.yml` and enabling one Kconfig option.
+
+### 1. Add to `west.yml`
+
+```yaml
+manifest:
+  projects:
+    - name: mqtt_min_broker
+      url: https://github.com/your-org/mqtt_min_broker
+      revision: main
+      path: modules/mqtt_min_broker
+```
+
+Run `west update` once after editing.
+
+### 2. Enable in `prj.conf`
+
+```
+CONFIG_MQTT_MIN_BROKER=y
+```
+
+This automatically pulls in `NET_SOCKETS_POSIX_NAMES`. You still need to enable networking in your own `prj.conf`:
+
+```
+CONFIG_NETWORKING=y
+CONFIG_NET_TCP=y
+CONFIG_NET_SOCKETS=y
+CONFIG_NET_IPV4=y
+```
+
+### 3. Call from your `main.c`
+
+```c
+#include "broker.h"
+
+int main(void)
+{
+    /* bring up your network interface / WiFi here, wait for DHCP */
+
+    broker_init();
+    broker_run(); /* does not return */
+    return 0;
+}
+```
+
+No other source files or include paths need to be added to your `CMakeLists.txt`.
+
+---
+
+## Standalone Build (ESP32 app)
+
+Use this when the broker is the entire application (not embedded into another project).
+
+### Requirements
 
 - [Zephyr SDK](https://docs.zephyrproject.org/latest/develop/getting_started/index.html) with `$ZEPHYR_BASE` set
 - `west` build tool
 - ESP32 board
 
-## Build & Flash
+### Setup & Build
 
 ```bash
-# one-time workspace init (if not already done)
-west init -m https://github.com/zephyrproject-rtos/zephyr
-west update
+# source your Zephyr environment
+source <workspace>/zephyr/zephyr-env.sh
+
+# verify tools + update west modules
+./setup.sh setup
 
 # build
-west build -b esp32 /path/to/mqtt_min_broker
+./setup.sh build
+# or equivalently:
+west build -b esp32 .
 
 # flash
 west flash
@@ -49,9 +110,11 @@ To tune memory limits, max clients, or log level:
 west build -t menuconfig
 ```
 
+---
+
 ## Configuration
 
-Key values in `prj.conf`:
+Key values in `prj.conf` (standalone) or your app's `prj.conf` (module):
 
 | Config | Default | Description |
 |--------|---------|-------------|
@@ -78,6 +141,8 @@ Key values in `include/packet.h`:
 | `MQTT_TOPIC_MAX` | 128 | Max topic string length |
 | `MQTT_PAYLOAD_MAX` | 1024 | Max publish payload size |
 
+---
+
 ## Architecture
 
 ```
@@ -100,15 +165,7 @@ client thread → recv_packet() → handle_publish()
 
 Each client runs in its own Zephyr thread (stack from static `client_stacks[]`). Shared state (`subs[]`, `retains[]`, `sessions[]`) is protected by per-module `K_MUTEX_DEFINE` mutexes.
 
-## WiFi Setup
-
-WiFi connection must be established before `broker_init()` is called. Add your WiFi credentials and connection logic to `src/main.c` where the TODO comment is:
-
-```c
-/* TODO: init WiFi and wait for DHCP before calling broker_init() */
-```
-
-Refer to the [Zephyr WiFi sample](https://docs.zephyrproject.org/latest/samples/net/wifi/README.html) for a connection snippet.
+---
 
 ## Testing with mosquitto_pub / mosquitto_sub
 

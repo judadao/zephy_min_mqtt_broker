@@ -1,0 +1,4 @@
+name: mqtt_min_broker
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

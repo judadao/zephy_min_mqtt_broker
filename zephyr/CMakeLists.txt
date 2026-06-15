@@ -1,0 +1,11 @@
+if(CONFIG_MQTT_MIN_BROKER)
+  zephyr_library_named(mqtt_min_broker)
+  zephyr_library_sources(
+    ../src/broker.c
+    ../src/client.c
+    ../src/packet.c
+    ../src/topic.c
+    ../src/session.c
+  )
+  zephyr_library_include_directories(../include)
+endif()

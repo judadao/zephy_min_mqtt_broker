@@ -1,0 +1,9 @@
+config MQTT_MIN_BROKER
+	bool "Minimal MQTT broker"
+	depends on NETWORKING && NET_TCP && NET_SOCKETS
+	select NET_SOCKETS_POSIX_NAMES
+	help
+	  Enable the minimal MQTT v3.1.1 broker library.
+	  Provides broker_init() and broker_run(); the caller is
+	  responsible for bringing up the network interface before
+	  calling broker_init().
