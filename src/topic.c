@@ -21,7 +21,7 @@ typedef struct {
 } retain_entry_t;
 
 static sub_entry_t    subs[TOPIC_MAX_SUBS];
-static retain_entry_t retains[TOPIC_MAX_SUBS];
+static retain_entry_t retains[TOPIC_RETAIN_MAX];
 PLAT_MUTEX_DEFINE(topic_lock);
 
 int topic_get_sub_snapshots(sub_snapshot_t *out, int max)
@@ -44,7 +44,7 @@ int topic_get_retain_snapshots(retain_snapshot_t *out, int max)
 {
     plat_mutex_lock(&topic_lock);
     int n = 0;
-    for (int i = 0; i < TOPIC_MAX_SUBS && n < max; i++) {
+    for (int i = 0; i < TOPIC_RETAIN_MAX && n < max; i++) {
         if (retains[i].in_use) {
             strncpy(out[n].topic, retains[i].topic, MQTT_TOPIC_MAX - 1);
             out[n].payload_len = retains[i].payload_len;
@@ -118,7 +118,7 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             plat_mutex_unlock(&topic_lock);
 
             /* deliver any matching retained message */
-            for (int j = 0; j < TOPIC_MAX_SUBS; j++) {
+            for (int j = 0; j < TOPIC_RETAIN_MAX; j++) {
                 if (retains[j].in_use &&
                     topic_match(filter, retains[j].topic)) {
                     mqtt_publish_t pub = {0};
@@ -173,7 +173,7 @@ int topic_publish(const mqtt_publish_t *pub)
     if (pub->retain) {
         plat_mutex_lock(&topic_lock);
         int found = -1;
-        for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+        for (int i = 0; i < TOPIC_RETAIN_MAX; i++) {
             if (retains[i].in_use &&
                 strcmp(retains[i].topic, pub->topic) == 0) {
                 found = i;
@@ -188,7 +188,7 @@ int topic_publish(const mqtt_publish_t *pub)
         } else {
             int slot = (found >= 0) ? found : -1;
             if (slot < 0) {
-                for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+                for (int i = 0; i < TOPIC_RETAIN_MAX; i++) {
                     if (!retains[i].in_use) {
                         slot = i;
                         break;

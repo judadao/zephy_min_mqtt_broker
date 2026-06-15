@@ -32,7 +32,7 @@
 #define MQTT_USERNAME_MAX    64
 #define MQTT_PASSWORD_MAX    64
 #define MQTT_TOPIC_MAX       128
-#define MQTT_PAYLOAD_MAX     1024
+#define MQTT_PAYLOAD_MAX     512
 #define MQTT_MAX_PACKET_SIZE (MQTT_TOPIC_MAX + MQTT_PAYLOAD_MAX + 64)
 
 /* raw packet buffer received from wire */

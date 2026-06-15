@@ -8,7 +8,8 @@
 /* forward declaration — include client.h in .c files */
 struct client;
 
-#define TOPIC_MAX_SUBS  (MQTT_MAX_CLIENTS * 8)
+#define TOPIC_MAX_SUBS   (MQTT_MAX_CLIENTS * 8)
+#define TOPIC_RETAIN_MAX 8
 
 typedef struct {
     char    filter[MQTT_TOPIC_MAX];
