@@ -5,6 +5,9 @@
 #if defined(CONFIG_MQTT_HTTP_DASHBOARD) && !defined(__ZEPHYR__)
 #include "http.h"
 #endif
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+#include "p2p.h"
+#endif
 
 LOG_MODULE_REGISTER(mqtt_main, LOG_LEVEL_INF);
 
@@ -28,6 +31,10 @@ int main(void)
 
 #if defined(CONFIG_MQTT_HTTP_DASHBOARD) && !defined(__ZEPHYR__)
     http_server_start(8080);
+#endif
+
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+    p2p_start();
 #endif
 
     broker_run(); /* does not return */

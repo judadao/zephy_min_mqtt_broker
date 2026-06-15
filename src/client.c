@@ -49,6 +49,20 @@ int client_get_snapshots(client_snapshot_t *out, int max)
     return n;
 }
 
+int client_free_slots(void)
+{
+    int n = 0;
+
+    plat_mutex_lock(&pool_lock);
+    for (int i = 0; i < MQTT_MAX_CLIENTS; i++) {
+        if (clients[i].state == CLIENT_STATE_FREE) {
+            n++;
+        }
+    }
+    plat_mutex_unlock(&pool_lock);
+    return n;
+}
+
 void client_pool_init(void)
 {
     memset(clients, 0, sizeof(clients));

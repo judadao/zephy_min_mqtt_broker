@@ -2,8 +2,8 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -I.
 OUTDIR  = build_out
 
-# Version stamp: VERSION file or override on command line (make VERSION=1.2.3)
-VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo dev)
+# Version stamp: Zephyr-format VERSION file or override on command line.
+VERSION ?= $(shell awk '/^VERSION_MAJOR/ {maj=$$3} /^VERSION_MINOR/ {min=$$3} /^PATCHLEVEL/ {patch=$$3} END { if (maj != "") print maj "." min "." patch; else print "dev" }' VERSION 2>/dev/null)
 DATE    := $(shell date +%Y%m%d)
 STAMP   := v$(VERSION)_$(DATE)
 
@@ -20,12 +20,32 @@ ifdef DASHBOARD
 CFLAGS += -DCONFIG_MQTT_HTTP_DASHBOARD
 endif
 
+# Optional dynamic broker P2P mode:
+#   make -f Makefile.linux P2P=1
+# Ports can be overridden for local multi-node tests:
+#   make -f Makefile.linux P2P=1 MQTT_PORT=1884 P2P_PORT=4894
+ifdef P2P
+CFLAGS += -DCONFIG_MQTT_P2P_DYNAMIC
+SRCS_P2P = src/p2p_discover.c src/p2p_election.c src/p2p_peer.c src/p2p_router.c
+endif
+
+ifdef MQTT_PORT
+CFLAGS += -DMQTT_BROKER_PORT=$(MQTT_PORT)
+endif
+ifdef P2P_PORT
+CFLAGS += -DP2P_PORT=$(P2P_PORT)
+endif
+ifdef P2P_DISCOVERY_PORT
+CFLAGS += -DP2P_DISCOVERY_PORT=$(P2P_DISCOVERY_PORT)
+endif
+
 SRCS = src/broker.c \
        src/client.c \
        src/main.c \
        src/packet.c \
        src/session.c \
        src/topic.c \
+       $(SRCS_P2P) \
        platform/posix/platform_posix.c
 
 ifdef DASHBOARD

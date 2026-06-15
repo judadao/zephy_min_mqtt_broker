@@ -12,7 +12,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_IMAGE="mqtt_min_broker_env:latest"
 BOARD="${BOARD:-esp32}"
-VERSION="${VERSION:-$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo dev)}"
+_version_from_file() {
+    awk '
+        /^VERSION_MAJOR/ { maj=$3 }
+        /^VERSION_MINOR/ { min=$3 }
+        /^PATCHLEVEL/    { patch=$3 }
+        END {
+            if (maj != "") print maj "." min "." patch;
+            else print "dev";
+        }
+    ' "$SCRIPT_DIR/VERSION" 2>/dev/null
+}
+VERSION="${VERSION:-$(_version_from_file)}"
 DATE="$(date +%Y%m%d)"
 STAMP="v${VERSION}_${DATE}"
 

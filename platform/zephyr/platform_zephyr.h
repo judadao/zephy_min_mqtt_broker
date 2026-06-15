@@ -6,6 +6,14 @@
 #include <zephyr/logging/log.h>
 #include <errno.h>
 
+#ifndef INADDR_ANY
+#define INADDR_ANY 0x00000000
+#endif
+
+#ifndef INADDR_BROADCAST
+#define INADDR_BROADCAST 0xffffffff
+#endif
+
 /* --- Mutex --- */
 typedef struct k_mutex  plat_mutex_t;
 #define PLAT_MUTEX_DEFINE(name)   K_MUTEX_DEFINE(name)
@@ -25,8 +33,11 @@ typedef struct k_thread  plat_thread_t;
 #define plat_bind        zsock_bind
 #define plat_listen      zsock_listen
 #define plat_accept      zsock_accept
+#define plat_connect     zsock_connect
 #define plat_send        zsock_send
+#define plat_sendto      zsock_sendto
 #define plat_recv        zsock_recv
+#define plat_recvfrom    zsock_recvfrom
 #define plat_close       zsock_close
 
 /* LOG_MODULE_REGISTER, LOG_INF/WRN/DBG/ERR, ARG_UNUSED

@@ -62,6 +62,18 @@ config MQTT_HTTP_DASHBOARD
 
 endmenu
 
+menu "Dynamic broker P2P"
+
+config MQTT_P2P_DYNAMIC
+    bool "Enable dynamic broker/router election"
+    default n
+    help
+      Enable UDP discovery, resource-weighted router election, and
+      TCP inter-node routing on port 4884. Leave disabled for a
+      normal standalone MQTT broker.
+
+endmenu
+
 menu "Auth"
 
 config MQTT_AUTH_ENABLED

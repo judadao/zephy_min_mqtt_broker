@@ -11,6 +11,7 @@ A minimal MQTT v3.1.1 broker written in C. Runs on both **Linux** (for developme
 - Keepalive timeout enforcement; QoS-1/2 inflight retry with DUP flag
 - Optional username/password auth (compile-time)
 - Optional HTTP status dashboard + REST API (Linux, port 8080)
+- Optional dynamic broker P2P mode with router election and inter-node routing
 - Up to 8 concurrent clients; zero heap allocation
 
 Not implemented: TLS, WebSocket.
@@ -29,7 +30,7 @@ All build artifacts land in `build_out/` regardless of platform. Each file is st
 | `build_out/zephyr.elf` | `build_out/zephyr_v0.1.0_20260615.elf` | Zephyr/ESP32 |
 | `build_out/zephyr.map` | `build_out/zephyr_v0.1.0_20260615.map` | Zephyr/ESP32 |
 
-Version is read from the `VERSION` file (currently `0.1.0`). Override at build time:
+Version is read from the Zephyr-format `VERSION` file (currently `0.1.0`). Override at build time:
 
 ```bash
 make -f Makefile.linux VERSION=1.2.3
@@ -74,6 +75,9 @@ make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
 
 # both
 make -f Makefile.linux DASHBOARD=1 AUTH_USER=admin AUTH_PASS=secret
+
+# dynamic broker P2P mode (UDP discovery + TCP inter-node routing)
+make -f Makefile.linux P2P=1
 ```
 
 ---
@@ -115,6 +119,25 @@ Enable with `DASHBOARD=1` at build time. Serves on port 8080:
 | `GET /` | HTML page — connected clients, subscriptions, retained messages, publish form |
 | `GET /api/status` | JSON snapshot of all broker state |
 | `POST /api/publish` | Publish a message: `{"topic":"…","payload":"…","qos":0}` |
+
+---
+
+## Dynamic Broker P2P Mode
+
+Dynamic broker mode is optional and disabled by default. Enable it with `P2P=1` on Linux or `CONFIG_MQTT_P2P_DYNAMIC=y` on Zephyr. Each node broadcasts its resource score, elects the top scoring nodes as routers, and exchanges subscription and publish messages over TCP port `4884`.
+
+Linux local multi-node tests can seed peers explicitly:
+
+```bash
+MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
+./scripts/test_p2p_dynamic.sh
+```
+
+Compile-time overrides are available for local tests:
+
+```bash
+make -f Makefile.linux P2P=1 MQTT_PORT=1884 P2P_PORT=4894 P2P_DISCOVERY_PORT=4895
+```
 
 ---
 
@@ -205,6 +228,7 @@ No changes to `CMakeLists.txt` needed.
 | `CONFIG_MQTT_WIFI_PASSWORD` | `""` | WiFi password (standalone mode) |
 | `CONFIG_MQTT_WIFI_DHCP` | y | Use DHCP (or STATIC) |
 | `CONFIG_MQTT_HTTP_DASHBOARD` | n | HTTP dashboard (Linux only) |
+| `CONFIG_MQTT_P2P_DYNAMIC` | n | Dynamic router election and inter-node routing |
 
 Copy `prj.conf.template` → `prj.conf` and fill in credentials. `prj.conf` is gitignored.
 
@@ -231,6 +255,7 @@ src/packet.c    MQTT v3.1.1 encode / decode (no dynamic alloc)
 src/topic.c     subscription table; wildcard (+/#); retained store; fan-out
 src/session.c   persistent session table
 src/http.c      HTTP dashboard + REST API (Linux only)
+src/p2p_*.c     dynamic broker discovery, election, peer links, remote routing
 src/wifi.c      WiFi init via net_mgmt (Zephyr only)
 tools/mqtt_cli.c  CLI client (Linux)
 platform/posix/ POSIX abstraction (pthread, BSD sockets)

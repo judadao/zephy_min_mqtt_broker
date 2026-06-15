@@ -3,6 +3,9 @@
 #include "topic.h"
 #include "client.h"
 #include "session.h"
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+#include "p2p.h"
+#endif
 
 LOG_MODULE_REGISTER(mqtt_topic, LOG_LEVEL_DBG);
 
@@ -105,6 +108,9 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             strcmp(subs[i].filter, filter) == 0) {
             subs[i].qos = qos;
             plat_mutex_unlock(&topic_lock);
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+            p2p_local_subscribe(filter, qos);
+#endif
             return 0;
         }
     }
@@ -117,6 +123,9 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             subs[i].qos    = qos;
             subs[i].in_use = 1;
             plat_mutex_unlock(&topic_lock);
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+            p2p_local_subscribe(filter, qos);
+#endif
             return 0;
         }
     }
@@ -132,6 +141,9 @@ int topic_unsubscribe(struct client *c, const char *filter)
         if (subs[i].in_use && subs[i].client == c &&
             strcmp(subs[i].filter, filter) == 0) {
             subs[i].in_use = 0;
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+            p2p_local_unsubscribe(filter);
+#endif
             break;
         }
     }
@@ -141,6 +153,28 @@ int topic_unsubscribe(struct client *c, const char *filter)
 
 void topic_unsubscribe_all(struct client *c)
 {
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+    while (1) {
+        char removed[MQTT_TOPIC_MAX] = {0};
+        int found = 0;
+
+        plat_mutex_lock(&topic_lock);
+        for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+            if (subs[i].in_use && subs[i].client == c) {
+                strncpy(removed, subs[i].filter, sizeof(removed) - 1);
+                subs[i].in_use = 0;
+                found = 1;
+                break;
+            }
+        }
+        plat_mutex_unlock(&topic_lock);
+
+        if (!found) {
+            break;
+        }
+        p2p_local_unsubscribe(removed);
+    }
+#else
     plat_mutex_lock(&topic_lock);
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c) {
@@ -148,9 +182,10 @@ void topic_unsubscribe_all(struct client *c)
         }
     }
     plat_mutex_unlock(&topic_lock);
+#endif
 }
 
-int topic_publish(const mqtt_publish_t *pub)
+static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 {
     /* store/clear retained message */
     if (pub->retain) {
@@ -226,7 +261,24 @@ int topic_publish(const mqtt_publish_t *pub)
 
     /* queue for offline persistent-session subscribers (QoS 0 skipped inside) */
     session_offline_publish(pub, topic_match);
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+    if (propagate) {
+        p2p_publish_from_local(pub);
+    }
+#else
+    ARG_UNUSED(propagate);
+#endif
     return 0;
+}
+
+int topic_publish(const mqtt_publish_t *pub)
+{
+    return topic_publish_internal(pub, 1);
+}
+
+int topic_publish_remote(const mqtt_publish_t *pub)
+{
+    return topic_publish_internal(pub, 0);
 }
 
 int topic_get_client_subs(struct client *c,

@@ -62,6 +62,7 @@ typedef struct {
 } client_snapshot_t;
 
 int  client_get_snapshots(client_snapshot_t *out, int max);
+int  client_free_slots(void);
 
 void client_pool_init(void);
 int  client_alloc(int fd);          /* returns slot index or -1 */

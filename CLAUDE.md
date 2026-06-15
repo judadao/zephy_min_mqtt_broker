@@ -4,61 +4,86 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Minimal MQTT broker implemented in C. Target: MQTT v3.1.1, QoS 0/1, TCP transport. No external dependencies beyond libc.
+Minimal MQTT v3.1.1 broker implemented in C. It supports Linux development/testing and Zephyr/ESP32 deployment. Core features include QoS 0/1/2, retained messages, persistent sessions, keepalive enforcement, optional username/password auth, optional Linux HTTP dashboard, and optional dynamic broker P2P routing.
 
-## Build (Zephyr / west)
+## Build
+
+Linux:
 
 ```bash
-west build -b esp32 .          # build for ESP32
-west flash                     # flash to device
-west build -t menuconfig       # open Kconfig menu
+make -f Makefile.linux
+make -f Makefile.linux DASHBOARD=1
+make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
+make -f Makefile.linux P2P=1
 ```
 
-Build system: CMake + Zephyr (`CMakeLists.txt` + `prj.conf`). Requires a configured Zephyr workspace with `$ZEPHYR_BASE` set.
+Zephyr:
+
+```bash
+west build -b esp32 .
+west flash
+west build -t menuconfig
+```
+
+Docker Zephyr build:
+
+```bash
+./docker-build.sh
+BOARD=esp32s3 ./docker-build.sh
+```
+
+## Tests
+
+```bash
+./scripts/test_broker.sh        # normal single-node MQTT smoke suite
+./scripts/test_p2p_dynamic.sh   # two local P2P brokers and cross-node publish
+```
+
+The P2P test compiles two broker binaries with different MQTT/P2P ports and uses `MQTT_P2P_PEERS` as a deterministic local seed.
 
 ## Architecture
 
 ```
-src/main.c      entry point; calls client_pool_init() → broker_init() → broker_run()
-src/broker.c    TCP listen socket; accept loop; calls client_alloc() per connection
-src/client.c    per-client Zephyr thread (one thread per connection from client_stacks[]);
-                MQTT state machine: dispatches CONNECT/PUBLISH/SUBSCRIBE/etc.
-src/packet.c    MQTT v3.1.1 encode/decode (no dynamic alloc)
-src/topic.c     flat subscription table (TOPIC_MAX_SUBS entries); wildcard matching (+ #);
-                retain message store; fan-out under topic_lock mutex
-src/session.c   persistent session store (survives reconnect when clean_session=0)
+src/main.c       entry point; init client pool, broker, optional HTTP/P2P
+src/broker.c     TCP listen socket; accept loop; calls client_alloc()
+src/client.c     one thread per client; MQTT state machine and QoS handling
+src/packet.c     MQTT v3.1.1 encode/decode; no dynamic allocation
+src/topic.c      local subscription table, wildcard match, retain store, fan-out
+src/session.c    persistent session store
+src/http.c       optional Linux dashboard + REST API
+src/p2p_*.c      optional discovery, election, peer transport, remote routing
+platform/*       POSIX and Zephyr abstraction layer
 ```
 
-Key data flow:
-1. `broker_run()` accepts TCP fds and calls `client_alloc()`.
-2. `client_alloc()` picks a free slot from the static pool and spawns a thread from `client_stacks[]`.
-3. The client thread calls `recv_packet()` in a loop (blocking recv), then dispatches by packet type.
-4. PUBLISH → `topic_publish()` → iterates `subs[]`, calls `client_send()` on each match.
+PUBLISH flow without P2P:
 
-## Concurrency model
+```text
+client thread -> recv_packet() -> handle_publish() -> topic_publish()
+  -> local topic_match() fan-out -> session_offline_publish()
+```
 
-- One Zephyr thread per connected client; stack size = `CLIENT_STACK_SIZE` (2048 bytes).
-- `pool_lock` mutex guards the client slot array in `client.c`.
-- `topic_lock` mutex guards `subs[]` and `retains[]` in `topic.c`.
-- `session_lock` mutex guards `sessions[]` in `session.c`.
-- All mutexes are `K_MUTEX_DEFINE` (static, no init call needed).
+PUBLISH flow with `CONFIG_MQTT_P2P_DYNAMIC`:
 
-## MQTT packet framing
+```text
+topic_publish() -> local fan-out -> p2p_publish_from_local()
+ROUTER nodes forward by remote subscription table
+remote node -> topic_publish_remote() -> local fan-out only
+```
 
-Fixed header: 1 byte (type|flags) + variable-length remaining-length (1–4 bytes, MSB = continuation bit). `recv_packet()` in `client.c` reads byte-by-byte until the continuation bit clears, then reads the full payload in one `recv_exact()` call.
+## Dynamic Broker Notes
 
-## Scope / known omissions
+Dynamic mode is opt-in. Nodes announce score over UDP discovery, connect over TCP port `4884`, exchange HELLO/SUB/UNSUB/PUBLISH frames, and use `(origin_id, seq)` seen-cache entries to prevent loops. `MQTT_P2P_PEERS=ip:port[,ip:port]` can seed peer connections when UDP broadcast is unavailable or for same-host tests.
 
-- MQTT v3.1.1 only; QoS 0 and 1 (QoS 2 not implemented).
-- No TLS. No username/password auth (hooks present in `handle_connect`, marked TODO).
-- WiFi init must be done before `broker_init()`; add it in `main.c` (marked TODO).
-- Keepalive timeout enforcement not yet implemented (last_seen_ms tracked, timer missing).
+## Concurrency Model
 
-## Coding conventions
+- One thread per MQTT client.
+- P2P adds discovery announce/listen threads, peer accept/connect threads, and one thread per P2P peer.
+- `pool_lock`, `topic_lock`, `session_lock`, P2P peer/election/router locks guard shared static tables.
+- Avoid dynamic allocation; keep buffers and tables statically bounded.
 
-Follow the same style as the sibling `io_p2p` module:
-- `snake_case` for all identifiers.
-- Header guards: `#ifndef MODULE_NAME_H` / `#define MODULE_NAME_H`.
-- Expose only what other modules need; keep internal helpers `static`.
-- Return 0 on success, negative errno on failure.
-- No dynamic allocation; all pools are statically sized arrays.
+## Coding Conventions
+
+- Use `snake_case` identifiers and `UPPER_SNAKE_CASE` macros.
+- Keep internal helpers `static`.
+- Return `0` on success and negative errno-style values on failures where practical.
+- Keep Linux and Zephyr paths compiling; use `platform/platform.h` abstractions for sockets, mutexes, time, and logging.

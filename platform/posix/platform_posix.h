@@ -31,8 +31,11 @@ int64_t plat_uptime_ms(void);
 #define plat_bind        bind
 #define plat_listen      listen
 #define plat_accept      accept
+#define plat_connect     connect
 #define plat_send        send
+#define plat_sendto      sendto
 #define plat_recv        recv
+#define plat_recvfrom    recvfrom
 #define plat_close       close
 
 /* --- Logging --- */

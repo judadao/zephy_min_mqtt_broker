@@ -14,4 +14,13 @@ target_sources(app PRIVATE
   src/wifi.c
 )
 
+if(CONFIG_MQTT_P2P_DYNAMIC)
+  target_sources(app PRIVATE
+    src/p2p_discover.c
+    src/p2p_election.c
+    src/p2p_peer.c
+    src/p2p_router.c
+  )
+endif()
+
 target_include_directories(app PRIVATE include ${CMAKE_CURRENT_SOURCE_DIR})
