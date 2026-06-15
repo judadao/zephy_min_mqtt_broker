@@ -5,8 +5,8 @@ set -uo pipefail   # note: no -e; we check failures ourselves
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
-BROKER="$ROOT/mqtt_broker"
-CLI="$ROOT/mqtt_cli"
+BROKER="$ROOT/out/mqtt_broker"
+CLI="$ROOT/out/mqtt_cli"
 PASS=0; FAIL=0
 BROKER_PID=0
 

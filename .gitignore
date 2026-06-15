@@ -1,4 +1,5 @@
 build/
+out/
 env.sh
 .dockerignore
 mqtt_broker
