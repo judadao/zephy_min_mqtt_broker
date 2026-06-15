@@ -9,6 +9,11 @@ CFLAGS += -DCONFIG_MQTT_AUTH_ENABLED \
 endif
 LDFLAGS = -lpthread
 
+# Optional dashboard: make -f Makefile.linux DASHBOARD=1
+ifdef DASHBOARD
+CFLAGS += -DCONFIG_MQTT_HTTP_DASHBOARD
+endif
+
 SRCS = src/broker.c \
        src/client.c \
        src/main.c \
@@ -16,6 +21,10 @@ SRCS = src/broker.c \
        src/session.c \
        src/topic.c \
        platform/posix/platform_posix.c
+
+ifdef DASHBOARD
+SRCS += src/http.c
+endif
 
 TARGET = mqtt_broker
 

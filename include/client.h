@@ -45,6 +45,15 @@ typedef struct client {
     plat_thread_t    thread;
 } client_t;
 
+typedef struct {
+    uint8_t  slot;
+    char     client_id[MQTT_CLIENT_ID_MAX];
+    uint16_t keepalive;
+    int64_t  last_seen_ms;
+} client_snapshot_t;
+
+int  client_get_snapshots(client_snapshot_t *out, int max);
+
 void client_pool_init(void);
 int  client_alloc(int fd);          /* returns slot index or -1 */
 void client_free(client_t *c);

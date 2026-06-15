@@ -1,9 +1,93 @@
 config MQTT_MIN_BROKER
 	bool "Minimal MQTT broker"
 	depends on NETWORKING && NET_TCP && NET_SOCKETS
-	select NET_SOCKETS_POSIX_NAMES
 	help
 	  Enable the minimal MQTT v3.1.1 broker library.
 	  Provides broker_init() and broker_run(); the caller is
 	  responsible for bringing up the network interface before
 	  calling broker_init().
+
+if MQTT_MIN_BROKER
+
+config MQTT_STANDALONE
+	bool "Include built-in main() and WiFi init"
+	depends on WIFI
+	default n
+	help
+	  Compile src/main.c and src/wifi.c so this module boots
+	  on its own.  Leave n when embedding into an existing app
+	  that provides its own main() and WiFi setup.
+
+menu "WiFi (standalone only)"
+	depends on MQTT_STANDALONE
+
+config MQTT_WIFI_SSID
+	string "WiFi SSID"
+	default ""
+
+config MQTT_WIFI_PASSWORD
+	string "WiFi Password"
+	default ""
+
+choice MQTT_WIFI_IP_MODE
+	prompt "IP address mode"
+	default MQTT_WIFI_DHCP
+
+config MQTT_WIFI_DHCP
+	bool "DHCP"
+
+config MQTT_WIFI_STATIC
+	bool "Static IP"
+
+endchoice
+
+if MQTT_WIFI_STATIC
+
+config MQTT_WIFI_STATIC_ADDR
+	string "Static IP address"
+	default "192.168.1.100"
+
+config MQTT_WIFI_STATIC_NETMASK
+	string "Netmask"
+	default "255.255.255.0"
+
+config MQTT_WIFI_STATIC_GW
+	string "Gateway"
+	default "192.168.1.1"
+
+endif # MQTT_WIFI_STATIC
+
+endmenu
+
+menu "HTTP Dashboard (Linux only)"
+
+config MQTT_HTTP_DASHBOARD
+	bool "Enable HTTP status dashboard"
+	default n
+	help
+	  Start a minimal HTTP server on port 8080.  Only compiled on
+	  Linux/POSIX; this option has no effect on Zephyr targets.
+
+endmenu
+
+menu "Auth"
+
+config MQTT_AUTH_ENABLED
+	bool "Require username/password on CONNECT"
+	default n
+
+if MQTT_AUTH_ENABLED
+
+config MQTT_AUTH_USERNAME
+	string "Required username"
+	default "admin"
+
+config MQTT_AUTH_PASSWORD
+	string "Required password"
+	default ""
+
+endif # MQTT_AUTH_ENABLED
+
+endmenu
+
+endif # MQTT_MIN_BROKER

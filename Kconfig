@@ -50,6 +50,18 @@ endif # MQTT_WIFI_STATIC
 
 endmenu
 
+menu "HTTP Dashboard"
+
+config MQTT_HTTP_DASHBOARD
+    bool "Enable HTTP status dashboard (Linux only)"
+    default n
+    help
+      Start a minimal HTTP server on port 8080 serving a status
+      dashboard (GET /) and REST API (GET /api/status,
+      POST /api/publish).  Not available on Zephyr targets.
+
+endmenu
+
 menu "Auth"
 
 config MQTT_AUTH_ENABLED

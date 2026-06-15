@@ -24,6 +24,38 @@ static sub_entry_t    subs[TOPIC_MAX_SUBS];
 static retain_entry_t retains[TOPIC_MAX_SUBS];
 PLAT_MUTEX_DEFINE(topic_lock);
 
+int topic_get_sub_snapshots(sub_snapshot_t *out, int max)
+{
+    plat_mutex_lock(&topic_lock);
+    int n = 0;
+    for (int i = 0; i < TOPIC_MAX_SUBS && n < max; i++) {
+        if (subs[i].in_use) {
+            strncpy(out[n].filter,    subs[i].filter,             MQTT_TOPIC_MAX - 1);
+            strncpy(out[n].client_id, subs[i].client->client_id,  MQTT_CLIENT_ID_MAX - 1);
+            out[n].qos = subs[i].qos;
+            n++;
+        }
+    }
+    plat_mutex_unlock(&topic_lock);
+    return n;
+}
+
+int topic_get_retain_snapshots(retain_snapshot_t *out, int max)
+{
+    plat_mutex_lock(&topic_lock);
+    int n = 0;
+    for (int i = 0; i < TOPIC_MAX_SUBS && n < max; i++) {
+        if (retains[i].in_use) {
+            strncpy(out[n].topic, retains[i].topic, MQTT_TOPIC_MAX - 1);
+            out[n].payload_len = retains[i].payload_len;
+            out[n].qos         = retains[i].qos;
+            n++;
+        }
+    }
+    plat_mutex_unlock(&topic_lock);
+    return n;
+}
+
 void topic_init(void)
 {
     memset(subs,    0, sizeof(subs));

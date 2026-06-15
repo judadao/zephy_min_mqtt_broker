@@ -31,6 +31,24 @@ static int recv_packet(client_t *c, mqtt_packet_t *out);
 
 /* ---------- pool ---------- */
 
+int client_get_snapshots(client_snapshot_t *out, int max)
+{
+    plat_mutex_lock(&pool_lock);
+    int n = 0;
+    for (int i = 0; i < MQTT_MAX_CLIENTS && n < max; i++) {
+        if (clients[i].state == CLIENT_STATE_CONNECTED) {
+            out[n].slot         = clients[i].slot;
+            out[n].keepalive    = clients[i].keepalive;
+            out[n].last_seen_ms = clients[i].last_seen_ms;
+            strncpy(out[n].client_id, clients[i].client_id,
+                    MQTT_CLIENT_ID_MAX - 1);
+            n++;
+        }
+    }
+    plat_mutex_unlock(&pool_lock);
+    return n;
+}
+
 void client_pool_init(void)
 {
     memset(clients, 0, sizeof(clients));
