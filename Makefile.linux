@@ -26,14 +26,19 @@ ifdef DASHBOARD
 SRCS += src/http.c
 endif
 
-TARGET = mqtt_broker
+TARGET     = mqtt_broker
+CLI_TARGET = mqtt_cli
+CLI_SRCS   = tools/mqtt_cli.c src/packet.c platform/posix/platform_posix.c
 
 .PHONY: all clean
 
-all: $(TARGET)
+all: $(TARGET) $(CLI_TARGET)
 
 $(TARGET): $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
 
+$(CLI_TARGET): $(CLI_SRCS)
+	$(CC) $(CFLAGS) $(CLI_SRCS) -o $(CLI_TARGET) $(LDFLAGS)
+
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(CLI_TARGET)

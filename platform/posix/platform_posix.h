@@ -38,9 +38,9 @@ int64_t plat_uptime_ms(void);
 /* --- Logging --- */
 #define LOG_MODULE_REGISTER(name, level)  /* no-op */
 #define LOG_INF(fmt, ...)  printf("[INF] " fmt "\n", ##__VA_ARGS__)
-#define LOG_WRN(fmt, ...)  printf("[WRN] " fmt "\n", ##__VA_ARGS__)
-#define LOG_DBG(fmt, ...)  printf("[DBG] " fmt "\n", ##__VA_ARGS__)
-#define LOG_ERR(fmt, ...)  printf("[ERR] " fmt "\n", ##__VA_ARGS__)
+#define LOG_WRN(fmt, ...)  fprintf(stderr, "[WRN] " fmt "\n", ##__VA_ARGS__)
+#define LOG_DBG(fmt, ...)  fprintf(stderr, "[DBG] " fmt "\n", ##__VA_ARGS__)
+#define LOG_ERR(fmt, ...)  fprintf(stderr, "[ERR] " fmt "\n", ##__VA_ARGS__)
 
 /* --- Misc --- */
 #define ARG_UNUSED(x)   (void)(x)

@@ -429,3 +429,19 @@ static void handle_disconnect(client_t *c)
     c->has_will = 0;
     c->state    = CLIENT_STATE_DISCONNECTING;
 }
+
+/* ---- POSIX thread spawn (Zephyr uses k_thread_create in client_alloc) ---- */
+
+#ifndef __ZEPHYR__
+static void *posix_thread_wrapper(void *arg)
+{
+    client_thread_fn(arg, NULL, NULL);
+    return NULL;
+}
+
+void plat_thread_spawn(client_t *c)
+{
+    pthread_create(&c->thread, NULL, posix_thread_wrapper, c);
+    pthread_detach(c->thread);
+}
+#endif
