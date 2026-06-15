@@ -4,30 +4,37 @@ A minimal MQTT v3.1.1 broker written in C. Runs on both **Linux** (for developme
 
 ## Features
 
-- MQTT v3.1.1: QoS 0 and QoS 1
+- MQTT v3.1.1: QoS 0, QoS 1, QoS 2
 - Topic wildcard matching (`+` single-level, `#` multi-level)
 - Retained message store
-- Persistent sessions (`clean_session = 0`)
-- Keepalive timeout enforcement with QoS-1 inflight retry (DUP)
+- Persistent sessions (`clean_session = 0`) with offline message queuing
+- Keepalive timeout enforcement; QoS-1/2 inflight retry with DUP flag
 - Optional username/password auth (compile-time)
 - Optional HTTP status dashboard + REST API (Linux, port 8080)
 - Up to 8 concurrent clients; zero heap allocation
 
-Not implemented: QoS 2, TLS, WebSocket.
+Not implemented: TLS, WebSocket.
 
 ---
 
 ## Build Output
 
-All build artifacts land in `build_out/` regardless of platform:
+All build artifacts land in `build_out/` regardless of platform. Each file is stamped with version + date; a `latest` symlink without the stamp is also created.
 
-| File | Source |
-|------|--------|
-| `build_out/mqtt_broker` | Linux broker binary |
-| `build_out/mqtt_cli` | Linux CLI tool |
-| `build_out/zephyr.bin` | ESP32 flashable image |
-| `build_out/zephyr.elf` | ESP32 ELF (for debugging) |
-| `build_out/zephyr_final.map` | Linker map |
+| Symlink (always latest) | Stamped file | Platform |
+|------------------------|--------------|----------|
+| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.0_20260615` | Linux |
+| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.0_20260615` | Linux |
+| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.0_20260615.bin` | Zephyr/ESP32 |
+| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.0_20260615.elf` | Zephyr/ESP32 |
+| `build_out/zephyr.map` | `build_out/zephyr_v0.1.0_20260615.map` | Zephyr/ESP32 |
+
+Version is read from the `VERSION` file (currently `0.1.0`). Override at build time:
+
+```bash
+make -f Makefile.linux VERSION=1.2.3
+VERSION=1.2.3 ./docker-build.sh
+```
 
 `build_out/` is gitignored.
 
