@@ -2,6 +2,11 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -I.
 OUTDIR  = build_out
 
+# Version stamp: VERSION file or override on command line (make VERSION=1.2.3)
+VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo dev)
+DATE    := $(shell date +%Y%m%d)
+STAMP   := v$(VERSION)_$(DATE)
+
 # Optional auth: make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
 ifdef AUTH_USER
 CFLAGS += -DCONFIG_MQTT_AUTH_ENABLED \
@@ -27,22 +32,26 @@ ifdef DASHBOARD
 SRCS += src/http.c
 endif
 
-TARGET     = $(OUTDIR)/mqtt_broker
-CLI_TARGET = $(OUTDIR)/mqtt_cli
+BROKER_BIN = $(OUTDIR)/mqtt_broker_$(STAMP)
+CLI_BIN    = $(OUTDIR)/mqtt_cli_$(STAMP)
 CLI_SRCS   = tools/mqtt_cli.c src/packet.c platform/posix/platform_posix.c
 
 .PHONY: all clean
 
-all: $(OUTDIR) $(TARGET) $(CLI_TARGET)
+all: $(OUTDIR) $(BROKER_BIN) $(CLI_BIN)
 
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
-$(TARGET): $(SRCS)
-	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
+$(BROKER_BIN): $(SRCS)
+	$(CC) $(CFLAGS) $(SRCS) -o $(BROKER_BIN) $(LDFLAGS)
+	ln -sf mqtt_broker_$(STAMP) $(OUTDIR)/mqtt_broker
+	@echo "  broker  → $(BROKER_BIN)"
 
-$(CLI_TARGET): $(CLI_SRCS)
-	$(CC) $(CFLAGS) $(CLI_SRCS) -o $(CLI_TARGET) $(LDFLAGS)
+$(CLI_BIN): $(CLI_SRCS)
+	$(CC) $(CFLAGS) $(CLI_SRCS) -o $(CLI_BIN) $(LDFLAGS)
+	ln -sf mqtt_cli_$(STAMP) $(OUTDIR)/mqtt_cli
+	@echo "  cli     → $(CLI_BIN)"
 
 clean:
 	rm -rf $(OUTDIR)

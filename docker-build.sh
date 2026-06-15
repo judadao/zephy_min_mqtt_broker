@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # Build mqtt_min_broker inside Docker — zero host pollution.
-# Artifacts land in ./build/ after the run.
+# Artifacts land in ./build_out/ with version + date stamp.
 #
 # Usage:
-#   ./docker-build.sh              # normal build; reuses env image if it exists
-#   REBUILD_ENV=1 ./docker-build.sh  # force-rebuild the Zephyr env image (~30 min)
-#   BOARD=esp32s3 ./docker-build.sh  # target a different board
+#   ./docker-build.sh                    # normal build; reuses env image if it exists
+#   REBUILD_ENV=1 ./docker-build.sh      # force-rebuild the Zephyr env image (~30 min)
+#   BOARD=esp32s3 ./docker-build.sh      # target a different board
+#   VERSION=1.2.3 ./docker-build.sh      # override version (default: reads ./VERSION)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_IMAGE="mqtt_min_broker_env:latest"
 BOARD="${BOARD:-esp32}"
+VERSION="${VERSION:-$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || echo dev)}"
+DATE="$(date +%Y%m%d)"
+STAMP="v${VERSION}_${DATE}"
 
 _info() { echo "[docker-build] $*"; }
 
@@ -31,16 +35,29 @@ else
 fi
 
 # ── run west build with project source mounted ────────────────────────────────
-_info "Running west build -b $BOARD ..."
+_info "Running west build -b $BOARD (version $STAMP)..."
 docker run --rm \
     --platform linux/amd64 \
     -v "$SCRIPT_DIR:/workspace" \
     "$ENV_IMAGE" \
     west build -b "$BOARD" /workspace
 
-# ── copy flashable artifacts to build_out/ ─────────────────────────────────────────
+# ── copy flashable artifacts to build_out/ with stamp ────────────────────────
 mkdir -p "$SCRIPT_DIR/build_out"
-cp "$SCRIPT_DIR/build/zephyr/zephyr.bin"       "$SCRIPT_DIR/build_out/"
-cp "$SCRIPT_DIR/build/zephyr/zephyr.elf"       "$SCRIPT_DIR/build_out/"
-cp "$SCRIPT_DIR/build/zephyr/zephyr_final.map" "$SCRIPT_DIR/build_out/"
-_info "Done. Firmware in $SCRIPT_DIR/build_out/"
+
+BIN="$SCRIPT_DIR/build_out/zephyr_${STAMP}.bin"
+ELF="$SCRIPT_DIR/build_out/zephyr_${STAMP}.elf"
+MAP="$SCRIPT_DIR/build_out/zephyr_${STAMP}.map"
+
+cp "$SCRIPT_DIR/build/zephyr/zephyr.bin"       "$BIN"
+cp "$SCRIPT_DIR/build/zephyr/zephyr.elf"       "$ELF"
+cp "$SCRIPT_DIR/build/zephyr/zephyr_final.map" "$MAP"
+
+# update "latest" symlinks
+ln -sf "zephyr_${STAMP}.bin" "$SCRIPT_DIR/build_out/zephyr.bin"
+ln -sf "zephyr_${STAMP}.elf" "$SCRIPT_DIR/build_out/zephyr.elf"
+ln -sf "zephyr_${STAMP}.map" "$SCRIPT_DIR/build_out/zephyr.map"
+
+_info "Done."
+_info "  firmware → build_out/zephyr_${STAMP}.bin"
+_info "  symlink  → build_out/zephyr.bin"
