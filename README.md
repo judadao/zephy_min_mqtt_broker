@@ -124,9 +124,73 @@ Enable with `DASHBOARD=1` at build time. Serves on port 8080:
 
 ## Dynamic Broker P2P Mode
 
-Dynamic broker mode is optional and disabled by default. Enable it with `P2P=1` on Linux or `CONFIG_MQTT_P2P_DYNAMIC=y` on Zephyr. Each node broadcasts its resource score, elects the top scoring nodes as routers, and exchanges subscription and publish messages over TCP port `4884`.
+Dynamic broker mode is optional and disabled by default. In normal mode, every MQTT client connects to one standalone broker. In dynamic mode, clients can still connect to any broker, but the brokers form a small P2P network behind the scenes and route matching publishes to the node that owns the subscriber.
 
-Linux local multi-node tests can seed peers explicitly:
+```mermaid
+flowchart LR
+    C1[MQTT Client A] --> N1[Broker Node A]
+    C2[MQTT Client B] --> N2[Broker Node B]
+    C3[MQTT Client C] --> N3[Broker Node C]
+
+    subgraph P2P["Optional dynamic broker layer"]
+        N1 <-->|TCP 4884| N2
+        N2 <-->|TCP 4884| N3
+        N1 -. UDP score announce .-> N3
+    end
+
+    N1 -->|route matching PUBLISH| N3
+```
+
+Enable it with `P2P=1` on Linux or `CONFIG_MQTT_P2P_DYNAMIC=y` on Zephyr.
+
+### Role election
+
+Every node calculates a resource score and announces it. Each node independently sorts the same score table; the top nodes become routers.
+
+```mermaid
+flowchart TD
+    A[Collect self stats] --> B[Broadcast score over UDP 4885]
+    B --> C[Receive peer scores]
+    C --> D[Sort by score, then node_id]
+    D --> E{Am I in top routers?}
+    E -->|yes| R[ROUTER: keep remote subscription table]
+    E -->|no| L[LEAF: attach to router nodes]
+```
+
+Score is intentionally simple and deterministic:
+
+```text
+score = free_client_slots * 10
+      + uptime_bonus
+      - active_peer_count * 5
+```
+
+On Zephyr, `P2P_PEER_MAX` defaults lower than Linux to fit ESP32 RAM.
+
+### Subscription and publish routing
+
+Subscribers remain normal MQTT clients. The P2P layer only mirrors subscription intent between brokers.
+
+```mermaid
+sequenceDiagram
+    participant Sub as Client on Node B
+    participant B as Broker B
+    participant A as Router Broker A
+    participant Pub as Client on Node A
+
+    Sub->>B: SUBSCRIBE sensors/+/temp
+    B->>A: P2P_SUB_NOTIFY sensors/+/temp
+    Pub->>A: PUBLISH sensors/kitchen/temp
+    A->>A: local fan-out
+    A->>B: P2P_PUBLISH origin_id + seq
+    B->>Sub: MQTT PUBLISH sensors/kitchen/temp
+```
+
+Loop prevention uses `(origin_id, seq)` in each P2P publish. Nodes keep a small seen-message ring buffer and drop duplicates.
+
+### Local test
+
+Linux local multi-node tests seed peers explicitly because same-host UDP broadcast is not always reliable:
 
 ```bash
 MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
@@ -247,31 +311,48 @@ Copy `prj.conf.template` → `prj.conf` and fill in credentials. `prj.conf` is g
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    Main[src/main.c] --> Broker[src/broker.c]
+    Main --> ClientPool[client_pool_init]
+    Broker --> Client[src/client.c]
+    Client --> Packet[src/packet.c]
+    Client --> Topic[src/topic.c]
+    Client --> Session[src/session.c]
+    Topic --> Session
+
+    Main -. DASHBOARD=1 .-> Http[src/http.c]
+    Main -. P2P=1 .-> P2P[p2p_discover / election / peer / router]
+    Topic -. local sub/pub events .-> P2P
+    P2P -. remote publish .-> Topic
+
+    Platform[platform/posix or platform/zephyr] --> Broker
+    Platform --> Client
+    Platform --> P2P
 ```
-src/main.c      entry: WiFi init (Zephyr) → broker_init → broker_run
-src/broker.c    TCP listen socket; accept loop; calls client_alloc() per fd
-src/client.c    one thread per client; blocking recv loop; MQTT state machine
-src/packet.c    MQTT v3.1.1 encode / decode (no dynamic alloc)
-src/topic.c     subscription table; wildcard (+/#); retained store; fan-out
-src/session.c   persistent session table
-src/http.c      HTTP dashboard + REST API (Linux only)
-src/p2p_*.c     dynamic broker discovery, election, peer links, remote routing
-src/wifi.c      WiFi init via net_mgmt (Zephyr only)
-tools/mqtt_cli.c  CLI client (Linux)
-platform/posix/ POSIX abstraction (pthread, BSD sockets)
-platform/zephyr/ Zephyr abstraction (k_mutex, k_thread, zsock_*)
-```
+
+| Area | Files | Purpose |
+|------|-------|---------|
+| MQTT protocol | `src/client.c`, `src/packet.c` | CONNECT/PUBLISH/SUBSCRIBE handling and packet encode/decode |
+| Local routing | `src/topic.c`, `src/session.c` | Local subscriptions, retained messages, persistent sessions |
+| Optional P2P | `src/p2p_*.c`, `include/p2p.h` | Discovery, election, peer links, remote subscription routing |
+| Platform layer | `platform/posix/`, `platform/zephyr/` | Socket, mutex, thread, time, and logging abstraction |
 
 PUBLISH data flow:
 
-```
-client thread → recv_packet() → handle_publish()
-  → topic_publish()
-      → topic_match() for each subscription
-          → client_send() to each match
+```mermaid
+flowchart LR
+    RX[client thread recv_packet] --> HP[handle_publish]
+    HP --> TP[topic_publish]
+    TP --> LF[local topic_match fan-out]
+    LF --> CS[client_send]
+    TP --> OFF[session_offline_publish]
+    TP -. if P2P enabled .-> RP[p2p_publish_from_local]
+    RP --> Peer[router peers]
+    Peer --> Remote[topic_publish_remote]
 ```
 
-Concurrency: one thread per client; shared state guarded by per-module mutexes (`pool_lock`, `topic_lock`, `session_lock`).
+Concurrency: one thread per MQTT client. P2P mode adds discovery, connect/accept, and peer threads. Shared state is guarded by per-module mutexes (`pool_lock`, `topic_lock`, `session_lock`, P2P locks).
 
 ---
 
