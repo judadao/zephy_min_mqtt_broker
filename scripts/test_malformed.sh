@@ -126,8 +126,20 @@ else
     _fail "broker crashed after rapid malformed connections"
 fi
 
-# ── Test 6: PUBLISH with QoS=3 (reserved) closes connection ─────────────────
-echo "--- Test 6: PUBLISH with QoS=3 (reserved) ---"
+# ── Test 6: non-CONNECT as first packet closes connection ────────────────────
+echo "--- Test 6: non-CONNECT as first packet (MQTT §3.1) ---"
+# Send a PUBLISH as the very first packet — broker must close immediately
+printf '\x30\x07\x00\x03t/xhi' | nc -q1 127.0.0.1 1883 >/dev/null 2>/dev/null || \
+printf '\x30\x07\x00\x03t/xhi' | nc -w2 127.0.0.1 1883 >/dev/null 2>/dev/null || true
+sleep 0.3
+if _broker_alive && _sanity; then
+    _ok "broker survives non-CONNECT first packet (MQTT §3.1)"
+else
+    _fail "broker crashed after non-CONNECT first packet"
+fi
+
+# ── Test 7: PUBLISH with QoS=3 (reserved) closes connection ─────────────────
+echo "--- Test 7: PUBLISH with QoS=3 (reserved) ---"
 # First connect, then send a PUBLISH with QoS bits = 11 (0x06 in fixed header)
 # CONNECT: \x10\x0e\x00\x04MQTT\x04\x02\x00\x00\x00\x02AB
 # PUBLISH QoS=3: type=0x36 (MQTT_PUBLISH=0x30 | QoS=3<<1=0x06), rem=9, topic 3-byte "t/x" + payload "hi"

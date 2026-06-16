@@ -156,6 +156,18 @@ void client_thread_fn(void *p1, void *p2, void *p3)
 
     LOG_DBG("client[%d] thread started", c->slot);
 
+    /* MQTT 3.1.1 §3.1: first packet MUST be CONNECT; 10-second deadline */
+    {
+        struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
+        plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+    if (recv_packet(c, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_CONNECT) {
+        LOG_WRN("client[%d] first packet not CONNECT — closing", c->slot);
+        client_free(c);
+        return;
+    }
+    handle_connect(c, &pkt);
+
     while (c->state == CLIENT_STATE_CONNECTED) {
         int rc = recv_packet(c, &pkt);
         if (rc < 0) {
@@ -178,7 +190,11 @@ void client_thread_fn(void *p1, void *p2, void *p3)
         uint8_t type = pkt.type_flags & 0xF0;
 
         switch (type) {
-        case MQTT_CONNECT:     handle_connect(c, &pkt);     break;
+        case MQTT_CONNECT:
+            /* second CONNECT is a protocol error per §3.1.0 */
+            LOG_WRN("client[%d] second CONNECT received — closing", c->slot);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            break;
         case MQTT_PUBLISH:     handle_publish(c, &pkt);     break;
         case MQTT_SUBSCRIBE:   handle_subscribe(c, &pkt);   break;
         case MQTT_UNSUBSCRIBE: handle_unsubscribe(c, &pkt); break;
