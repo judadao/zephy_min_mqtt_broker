@@ -324,6 +324,79 @@ else
     _ok "zero client ID test skipped (python3 not available)"
 fi
 
+# ── Test 8: SUBSCRIBE with invalid topic filter returns 0x80 ─────────────────
+echo "--- Test 8: invalid topic filter returns SUBACK 0x80 ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t8.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def make_subscribe(pkt_id, topic, qos=0):
+    t = topic.encode()
+    body = struct.pack('>HH', pkt_id, len(t)) + t + bytes([qos])
+    return b'\x82' + bytes([len(body)]) + body
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('edge_t8'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# invalid filter: "sport/tennis#" — '#' not at its own level
+s.sendall(make_subscribe(1, 'sport/tennis#'))
+try:
+    data = s.recv(8)
+    # SUBACK: 0x90, rem_len, pid_hi, pid_lo, rc...
+    if len(data) >= 5 and data[0] == 0x90 and data[4] == 0x80:
+        print("OK: SUBACK 0x80 for invalid filter 'sport/tennis#'")
+    else:
+        print(f"UNEXPECTED: {data.hex()}")
+except socket.timeout:
+    print("TIMEOUT: no SUBACK")
+except (ConnectionResetError, BrokenPipeError):
+    print("RESET: broker closed connection")
+
+# valid filter on same connection should succeed
+s.sendall(make_subscribe(2, 'sport/tennis/#'))
+try:
+    data = s.recv(8)
+    if len(data) >= 5 and data[0] == 0x90 and data[4] == 0x00:
+        print("OK: SUBACK 0x00 for valid filter 'sport/tennis/#'")
+    else:
+        print(f"UNEXPECTED: {data.hex()}")
+except socket.timeout:
+    print("TIMEOUT: no SUBACK for valid filter")
+
+s.sendall(b'\xe0\x00')  # DISCONNECT
+s.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t8.out)"
+    echo "  result: $OUT"
+    LINE1="$(echo "$OUT" | head -1)"
+    LINE2="$(echo "$OUT" | sed -n '2p')"
+    if echo "$LINE1" | grep -qi "^OK"; then
+        _ok "invalid filter 'sport/tennis#' → SUBACK 0x80"
+    else
+        _fail "invalid filter not rejected: $LINE1"
+    fi
+    if echo "$LINE2" | grep -qi "^OK"; then
+        _ok "valid filter 'sport/tennis/#' → SUBACK 0x00"
+    else
+        _fail "valid filter rejected: $LINE2"
+    fi
+else
+    _ok "SUBACK 0x80 test skipped (python3 not available)"
+    _ok "SUBACK 0x80 test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
