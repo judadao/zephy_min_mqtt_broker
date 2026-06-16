@@ -250,6 +250,9 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
                 retains[slot].payload_len = pub->payload_len;
                 retains[slot].qos         = pub->qos;
                 retains[slot].in_use      = 1;
+            } else {
+                LOG_WRN("retain store full (%d slots), dropping topic=%s",
+                        TOPIC_RETAIN_MAX, pub->topic);
             }
         }
         plat_mutex_unlock(&topic_lock);

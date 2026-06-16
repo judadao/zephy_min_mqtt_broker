@@ -468,7 +468,10 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
 
     uint8_t    session_present = 0;
     session_t *sess            = NULL;
-    if (!conn.clean_session) {
+    if (conn.clean_session) {
+        /* MQTT 3.1.1 §3.1.2.4: clean_session=1 must discard any existing session */
+        session_delete(conn.client_id);
+    } else {
         sess = session_find(conn.client_id);
         if (sess) {
             session_present = 1;

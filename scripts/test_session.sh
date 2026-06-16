@@ -138,6 +138,36 @@ else
     _fail "session_present=1 not reported (got: $STDERR_OUT)"
 fi
 
+# ── Test 5: clean_session=1 purges pre-existing persistent session ────────────
+echo "--- Test 5: clean_session=1 purges old persistent session ---"
+# MQTT 3.1.1 §3.1.2.4: if clean_session=1 on connect, the broker must discard
+# any stored session for that client ID — even one saved from a prior persistent connection.
+CID5="sess_purge_$(date +%s)"
+
+# Step 1: connect with clean_session=0, subscribe, disconnect to save session
+"$CLI" sub -t "sess/purge/t" -q 1 -i "$CID5" -s >/dev/null 2>/dev/null &
+SUB=$!; sleep 0.4
+kill $SUB 2>/dev/null; wait $SUB 2>/dev/null || true
+sleep 0.2
+
+# Step 2: publish while offline — should queue in the persistent session
+"$CLI" pub -t "sess/purge/t" -m "queued-msg" -q 1 >/dev/null
+sleep 0.2
+
+# Step 3: reconnect with clean_session=1 — must purge the session immediately
+"$CLI" sub -t "sess/purge/other" -i "$CID5" >/tmp/sess_t5.out 2>/dev/null &
+CCONN=$!; sleep 0.5
+
+# Verify no queued messages from the old session are delivered
+kill $CCONN 2>/dev/null; wait $CCONN 2>/dev/null || true
+
+OLD_MSG="$(grep "sess/purge/t queued-msg" /tmp/sess_t5.out || true)"
+if [ -z "$OLD_MSG" ]; then
+    _ok "clean_session=1 purged old persistent session (no queued msg delivered)"
+else
+    _fail "old persistent session NOT purged — queued msg leaked: $OLD_MSG"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
