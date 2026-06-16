@@ -533,6 +533,13 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
         }
     }
 
+    /* MQTT 3.1.1 §2.3.1: packet identifier MUST NOT be 0 for QoS > 0 */
+    if (pub.qos > 0 && pub.packet_id == 0) {
+        LOG_WRN("client[%d] PUBLISH QoS%d with packet_id=0 — closing", c->slot, pub.qos);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     LOG_DBG("client[%d] PUBLISH topic=%s qos=%d", c->slot, pub.topic, pub.qos);
 
     if (pub.qos == 2) {
