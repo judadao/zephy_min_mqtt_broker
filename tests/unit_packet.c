@@ -421,6 +421,70 @@ static void test_parse_subscribe(void)
     ASSERT_EQ(qos[1], 0, "subscribe qos[1] = 0");
 }
 
+static void test_parse_unsubscribe(void)
+{
+    printf("\n--- parse_unsubscribe ---\n");
+
+    /* Build a minimal UNSUBSCRIBE packet: pkt_id=3, two topics */
+    const char *t0 = "a/b";
+    const char *t1 = "x/#";
+    uint16_t  l0 = (uint16_t)strlen(t0);
+    uint16_t  l1 = (uint16_t)strlen(t1);
+    /* Variable header: pkt_id(2) + 2+t0 + 2+t1 */
+    uint32_t rem_len = 2 + 2 + l0 + 2 + l1;
+    uint8_t rem_enc[4]; size_t rem_bytes;
+    packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes);
+
+    uint8_t raw[64]; size_t p = 0;
+    raw[p++] = MQTT_UNSUBSCRIBE | 0x02;
+    memcpy(raw + p, rem_enc, rem_bytes); p += rem_bytes;
+    raw[p++] = 0; raw[p++] = 3; /* pkt_id = 3 */
+    raw[p++] = (uint8_t)(l0 >> 8); raw[p++] = (uint8_t)(l0 & 0xFF);
+    memcpy(raw + p, t0, l0); p += l0;
+    raw[p++] = (uint8_t)(l1 >> 8); raw[p++] = (uint8_t)(l1 & 0xFF);
+    memcpy(raw + p, t1, l1); p += l1;
+
+    mqtt_packet_t pkt;
+    pkt.type_flags    = raw[0];
+    pkt.remaining_len = rem_len;
+    memcpy(pkt.buf, raw + 1 + rem_bytes, rem_len);
+    pkt.buf_len       = rem_len;
+
+    uint16_t pid; char topics[4][MQTT_TOPIC_MAX]; uint8_t count;
+    int rc = packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4);
+    ASSERT(rc == 0,                              "parse_unsubscribe succeeds");
+    ASSERT_EQ(pid,   3,                          "unsubscribe packet_id = 3");
+    ASSERT_EQ(count, 2,                          "unsubscribe count = 2");
+    ASSERT(strcmp(topics[0], "a/b") == 0,        "unsubscribe topic[0] = a/b");
+    ASSERT(strcmp(topics[1], "x/#") == 0,        "unsubscribe topic[1] = x/#");
+
+    /* truncated packet */
+    pkt.buf_len = 1; /* only packet_id hi byte */
+    ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4) < 0,
+           "parse_unsubscribe truncated → error");
+
+    /* single topic */
+    p = 0;
+    const char *t2 = "single/topic";
+    uint16_t l2 = (uint16_t)strlen(t2);
+    rem_len = 2 + 2 + l2;
+    packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes);
+    raw[p++] = MQTT_UNSUBSCRIBE | 0x02;
+    memcpy(raw + p, rem_enc, rem_bytes); p += rem_bytes;
+    raw[p++] = 0; raw[p++] = 99;
+    raw[p++] = (uint8_t)(l2 >> 8); raw[p++] = (uint8_t)(l2 & 0xFF);
+    memcpy(raw + p, t2, l2);
+    pkt.type_flags    = raw[0];
+    pkt.remaining_len = rem_len;
+    memcpy(pkt.buf, raw + 1 + rem_bytes, rem_len);
+    pkt.buf_len       = rem_len;
+    rc = packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4);
+    ASSERT(rc == 0,                          "parse_unsubscribe single topic");
+    ASSERT_EQ(pid,   99,                     "unsubscribe single pkt_id = 99");
+    ASSERT_EQ(count, 1,                      "unsubscribe single count = 1");
+    ASSERT(strcmp(topics[0], t2) == 0,       "unsubscribe single topic correct");
+}
+
 /* ── main ──────────────────────────────────────────────────────────────────── */
 int main(void)
 {
@@ -436,6 +500,7 @@ int main(void)
     test_build_parse_publish_roundtrip();
     test_parse_connect();
     test_parse_subscribe();
+    test_parse_unsubscribe();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
     return (g_fail == 0) ? 0 : 1;
