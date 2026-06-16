@@ -17,6 +17,7 @@
 static int      stub_send_total;
 static char     stub_recv_topics[8][MQTT_TOPIC_MAX];
 static char     stub_recv_payloads[8][MQTT_PAYLOAD_MAX + 1];
+static uint8_t  stub_recv_retain[8];
 static int      stub_recv_count;
 static int      stub_inflight_count;
 
@@ -46,6 +47,7 @@ int client_send(client_t *c, const uint8_t *buf, size_t len)
             pub.payload[pub.payload_len] = '\0';
             strncpy(stub_recv_payloads[stub_recv_count], (char *)pub.payload,
                     MQTT_PAYLOAD_MAX);
+            stub_recv_retain[stub_recv_count] = pub.retain;
             stub_recv_count++;
         }
     }
@@ -73,6 +75,7 @@ static void stub_reset(void)
     stub_inflight_count = 0;
     memset(stub_recv_topics,   0, sizeof(stub_recv_topics));
     memset(stub_recv_payloads, 0, sizeof(stub_recv_payloads));
+    memset(stub_recv_retain,   0, sizeof(stub_recv_retain));
 }
 
 /* ── fake clients ─────────────────────────────────────────────────────────── */
@@ -394,6 +397,42 @@ static void test_duplicate_subscription(void)
     CHECK("duplicate sub: message delivered exactly once", stub_recv_count == 1);
 }
 
+/* ── test_retain_flag_delivery ───────────────────────────────────────────── */
+/* MQTT §3.3.1.3: retain=1 when delivering stored, retain=0 in fan-out */
+static void test_retain_flag_delivery(void)
+{
+    printf("\n-- test_retain_flag_delivery --\n");
+    topic_init();
+    clients_init();
+    stub_reset();
+
+    /* publish with retain=1 */
+    mqtt_publish_t pub = {0};
+    strncpy(pub.topic, "retain/flag", sizeof(pub.topic) - 1);
+    memcpy(pub.payload, "hello", 5); pub.payload_len = 5;
+    pub.retain = 1; pub.qos = 0;
+    topic_publish(&pub);
+
+    /* no subscribers yet — no stub calls */
+    CHECK("no delivery before subscribe", stub_recv_count == 0);
+
+    /* subscriber arrives */
+    topic_subscribe(&clients[0], "retain/flag", 0);
+    topic_deliver_retained(&clients[0], "retain/flag", 0);
+    /* retained delivery must set retain=1 (MQTT §3.3.1.3) */
+    CHECK("retained delivery: retain=1",
+          stub_recv_count == 1 && stub_recv_retain[0] == 1);
+
+    stub_reset();
+
+    /* now publish a fresh message (retain=1 in wire → fan-out clears it) */
+    memcpy(pub.payload, "world", 5);
+    topic_publish(&pub);
+    /* fan-out must clear retain flag per MQTT §3.3.1.3 */
+    CHECK("fan-out: retain cleared to 0",
+          stub_recv_count == 1 && stub_recv_retain[0] == 0);
+}
+
 /* ── test_filter_valid ────────────────────────────────────────────────────── */
 
 static void test_filter_valid(void)
@@ -436,6 +475,7 @@ int main(void)
     test_qos_downgrade();
     test_retain_wildcard_deliver();
     test_duplicate_subscription();
+    test_retain_flag_delivery();
     test_filter_valid();
 
     printf("\n=== Results: %d passed, %d failed ===\n", pass_count, fail_count);
