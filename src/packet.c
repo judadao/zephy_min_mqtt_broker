@@ -109,6 +109,10 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
     }
 
     uint8_t connect_flags  = b[pos++];
+    /* MQTT 3.1.1 §3.1.2.1: reserved bit (bit 0) MUST be 0 */
+    if (connect_flags & 0x01) {
+        return -1;
+    }
     out->clean_session     = (connect_flags >> 1) & 0x01;
     uint8_t has_will       = (connect_flags >> 2) & 0x01;
     out->will_qos          = (connect_flags >> 3) & 0x03;
@@ -116,6 +120,15 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
     out->has_will          = has_will;
     out->has_password      = (connect_flags >> 6) & 0x01;
     out->has_username      = (connect_flags >> 7) & 0x01;
+
+    /* MQTT 3.1.1 §3.1.2.4: if has_will=0, will_qos and will_retain MUST be 0 */
+    if (!has_will && (out->will_qos != 0 || out->will_retain != 0)) {
+        return -1;
+    }
+    /* MQTT 3.1.1 §3.1.2.9: password flag requires username flag */
+    if (out->has_password && !out->has_username) {
+        return -1;
+    }
 
     out->keepalive = read_u16(b + pos);
     pos += 2;

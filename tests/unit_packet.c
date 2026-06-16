@@ -652,9 +652,46 @@ static void test_parse_connect_edge(void)
     pkt.buf_len = p;
     memcpy(pkt.buf, body, p);
     memset(&conn, 0, sizeof(conn));
+    /* MQTT 3.1.1 §3.1.2.4: will_retain=1 with has_will=0 is a protocol error */
+    ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+           "will_retain=1 with has_will=0: parse fails (§3.1.2.4)");
+
+    /* valid: will_retain=0 with has_will=0 */
+    p = 0;
+    memcpy(body, hdr, sizeof(hdr));
+    body[sizeof(hdr) - 3] = 0x02; /* flags: clean_session=1, no will, no retain */
+    p = sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 0x02; body[p++] = 'a'; body[p++] = 'b';
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
     ASSERT(packet_parse_connect(&pkt, &conn) == 0,
-           "will_retain=1 with has_will=0: parse succeeds (no will read)");
-    ASSERT_EQ(conn.has_will, 0, "has_will=0 despite retain flag");
+           "no-will no-retain: parse succeeds");
+    ASSERT_EQ(conn.has_will, 0, "no-will: has_will=0 confirmed");
+
+    /* MQTT 3.1.1 §3.1.2.1: reserved bit 0 must be 0 */
+    p = 0;
+    memcpy(body, hdr, sizeof(hdr));
+    body[sizeof(hdr) - 3] = 0x03; /* flags: reserved bit set */
+    p = sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 0x02; body[p++] = 'c'; body[p++] = 'd';
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+           "reserved bit 0 set: parse fails (§3.1.2.1)");
+
+    /* MQTT 3.1.1 §3.1.2.9: password flag requires username flag */
+    p = 0;
+    memcpy(body, hdr, sizeof(hdr));
+    body[sizeof(hdr) - 3] = 0x42; /* flags: password=1, username=0, clean=1 */
+    p = sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 0x02; body[p++] = 'e'; body[p++] = 'f';
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+           "password without username: parse fails (§3.1.2.9)");
 }
 
 /* ── main ──────────────────────────────────────────────────────────────────── */
