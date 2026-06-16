@@ -205,6 +205,55 @@ else
     _ok "second CONNECT test skipped (python3 not available)"
 fi
 
+# ── Test 6: PINGREQ / PINGRESP roundtrip ─────────────────────────────────────
+echo "--- Test 6: PINGREQ / PINGRESP roundtrip ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t6.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(client_id):
+    cid = client_id.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(cid)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(cid)) + cid
+    return pkt
+
+PINGREQ  = b'\xc0\x00'
+PINGRESP = b'\xd0\x00'
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+
+s.sendall(make_connect('ping_test_client'))
+connack = s.recv(4)  # CONNACK
+
+time.sleep(0.05)
+s.sendall(PINGREQ)
+try:
+    resp = s.recv(2)
+    if resp == PINGRESP:
+        print("OK: PINGRESP received")
+    else:
+        print(f"FAIL: expected PINGRESP 0xd000, got {resp.hex()}")
+except socket.timeout:
+    print("FAIL: timed out waiting for PINGRESP")
+
+s.sendall(b'\xe0\x00')  # DISCONNECT
+s.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t6.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "^OK"; then
+        _ok "PINGREQ / PINGRESP roundtrip"
+    else
+        _fail "PINGREQ/PINGRESP failed: $OUT"
+    fi
+else
+    _ok "PINGREQ/PINGRESP test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
