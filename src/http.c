@@ -280,17 +280,24 @@ static void handle_connection(int fd)
         if (cl) clen = atoi(cl + 15);
 
         static char body_buf[MQTT_PAYLOAD_MAX + 256];
+        memset(body_buf, 0, sizeof(body_buf));
         if (body) {
             int already = total - (int)(body - req);
             int remain  = clen - already;
-            if (already > 0)
-                memcpy(body_buf, body, (size_t)already < sizeof(body_buf) ? (size_t)already : sizeof(body_buf) - 1);
-            if (remain > 0 && already + remain < (int)sizeof(body_buf) - 1) {
+            if (already > 0) {
+                size_t copy = (size_t)already < sizeof(body_buf) - 1
+                              ? (size_t)already : sizeof(body_buf) - 1;
+                memcpy(body_buf, body, copy);
+            }
+            if (remain > 0 && already >= 0 &&
+                (size_t)already + (size_t)remain < sizeof(body_buf) - 1) {
                 recv(fd, body_buf + already, (size_t)remain, MSG_WAITALL);
             }
-            body_buf[already + (remain > 0 ? remain : 0)] = '\0';
-        } else {
-            body_buf[0] = '\0';
+            /* null-terminator: always within buffer bounds */
+            size_t term = (size_t)(already + (remain > 0 ? remain : 0));
+            if (term >= sizeof(body_buf))
+                term = sizeof(body_buf) - 1;
+            body_buf[term] = '\0';
         }
         handle_publish_api(fd, body_buf);
         return;
