@@ -66,7 +66,38 @@ LWT_CLI_SRCS      = tests/lwt_client.c src/packet.c platform/posix/platform_posi
 KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
 SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
 
-.PHONY: all clean test test-all unit-tests test-helpers
+.PHONY: all clean test test-all unit-tests test-helpers help
+
+help:
+	@echo "Linux build targets:"
+	@echo "  make -f Makefile.linux               # broker + mqtt_cli"
+	@echo "  make -f Makefile.linux DASHBOARD=1   # + HTTP dashboard (port 8080)"
+	@echo "  make -f Makefile.linux P2P=1         # + dynamic P2P routing"
+	@echo "  make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret"
+	@echo ""
+	@echo "Test targets:"
+	@echo "  make -f Makefile.linux test           # unit tests + smoke suite"
+	@echo "  make -f Makefile.linux test-all       # all integration suites (~30s)"
+	@echo "  make -f Makefile.linux unit-tests     # unit tests only"
+	@echo "  ./scripts/run_all_tests.sh --all      # slow suites + P2P + dashboard"
+	@echo ""
+	@echo "Individual integration suites:"
+	@echo "  ./scripts/test_broker.sh              # smoke: pub/sub, retain, wildcards"
+	@echo "  ./scripts/test_lwt.sh                 # LWT / Will messages"
+	@echo "  ./scripts/test_session.sh             # persistent sessions"
+	@echo "  ./scripts/test_qos2.sh                # QoS 2 end-to-end"
+	@echo "  ./scripts/test_session_qos2.sh        # QoS 2 + sessions"
+	@echo "  ./scripts/test_unsub.sh               # UNSUBSCRIBE"
+	@echo "  ./scripts/test_connect_edge.sh        # takeover, PINGREQ, 2nd CONNECT"
+	@echo "  ./scripts/test_connack_unavail.sh     # pool-full CONNACK 0x03"
+	@echo "  ./scripts/test_malformed.sh           # malformed/garbage packets"
+	@echo "  ./scripts/test_large_payload.sh       # large payloads, LWT+session"
+	@echo "  ./scripts/test_auth.sh                # username/password auth"
+	@echo "  ./scripts/test_stress.sh              # concurrent connections"
+	@echo "  ./scripts/test_keepalive.sh           # keepalive enforcement (~20s)"
+	@echo "  ./scripts/test_inflight_retry.sh      # QoS1 DUP retry (~20s)"
+	@echo "  ./scripts/test_p2p_dynamic.sh         # two-node P2P routing"
+	@echo "  ./scripts/test_dashboard.sh           # HTTP REST API (DASHBOARD=1)"
 
 all: $(OUTDIR) $(BROKER_BIN) $(CLI_BIN)
 
