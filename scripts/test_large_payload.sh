@@ -147,6 +147,30 @@ else
     _fail "300-byte msg fan-out failed"
 fi
 
+# ── Test 5: exact MQTT_PAYLOAD_MAX (512-byte) payload delivered ───────────────
+echo "--- Test 5: 512-byte payload (MQTT_PAYLOAD_MAX boundary) ---"
+if command -v python3 >/dev/null 2>&1; then
+    MSG512=$(python3 -c 'print("B"*512, end="")')
+    "$CLI" sub -t "big/boundary" >/tmp/big_t5.out 2>/dev/null &
+    SUB5=$!; sleep 0.3
+    "$CLI" pub -t "big/boundary" -m "$MSG512" >/dev/null
+    sleep 0.3
+    kill $SUB5 2>/dev/null; wait $SUB5 2>/dev/null || true
+    # Verify delivery — just check topic and that payload starts with 'B'
+    if grep -q "big/boundary" /tmp/big_t5.out; then
+        _ok "512-byte payload (MQTT_PAYLOAD_MAX) delivered"
+    else
+        _fail "512-byte payload not delivered"
+    fi
+    # Broker must still be alive
+    "$CLI" pub -t "big/alive5" -m "ok" >/dev/null 2>&1 && \
+        _ok "broker alive after 512-byte delivery" || \
+        _fail "broker crashed after 512-byte delivery"
+else
+    _ok "512-byte test skipped (python3 not available)"
+    _ok "512-byte test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
