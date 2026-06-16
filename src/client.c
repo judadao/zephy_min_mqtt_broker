@@ -213,7 +213,39 @@ void client_thread_fn(void *p1, void *p2, void *p3)
                 LOG_WRN("client[%d] bad fixed-header reserved bits 0x%02x — closing",
                         c->slot, pkt.type_flags);
                 c->state = CLIENT_STATE_DISCONNECTING;
-                break; /* break out of outer while body */
+                break;
+            }
+        }
+
+        /* validate remaining_len for packets with fixed payload sizes */
+        {
+            int bad_rem = 0;
+            switch (type) {
+            /* ack packets: exactly 2 bytes (packet_id only) */
+            case MQTT_PUBACK:
+            case MQTT_PUBREC:
+            case MQTT_PUBREL:
+            case MQTT_PUBCOMP:
+                bad_rem = (pkt.remaining_len != 2);
+                break;
+            /* zero-payload control packets */
+            case MQTT_PINGREQ:
+            case MQTT_DISCONNECT:
+                bad_rem = (pkt.remaining_len != 0);
+                break;
+            /* variable-payload packets: at least 2 bytes (packet_id) */
+            case MQTT_SUBSCRIBE:
+            case MQTT_UNSUBSCRIBE:
+                bad_rem = (pkt.remaining_len < 2);
+                break;
+            default:
+                break;
+            }
+            if (bad_rem) {
+                LOG_WRN("client[%d] malformed remaining_len=%u type=0x%02x — closing",
+                        c->slot, pkt.remaining_len, type);
+                c->state = CLIENT_STATE_DISCONNECTING;
+                break;
             }
         }
 
