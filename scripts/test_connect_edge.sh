@@ -254,6 +254,76 @@ else
     _ok "PINGREQ/PINGRESP test skipped (python3 not available)"
 fi
 
+# ── Test 7: zero-length client ID with clean_session=0 rejected ──────────────
+echo "--- Test 7: zero-length client ID with clean_session=0 (MQTT §3.1.3.1) ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t7.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(clean_session, client_id=b''):
+    flags = (0x02 if clean_session else 0x00)
+    # proto(6) + level(1) + flags(1) + keepalive(2) + cid_len(2) + cid
+    payload = struct.pack('>H', len(client_id)) + client_id
+    rem = 10 + len(payload)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04' + bytes([flags]) + b'\x00\x3c'
+    pkt += payload
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+# empty client ID + clean_session=0 → must be rejected with CONNACK 0x02
+s.sendall(make_connect(clean_session=False, client_id=b''))
+try:
+    data = s.recv(4)
+    if len(data) >= 4 and data[0] == 0x20 and data[3] == 0x02:
+        print("OK: CONNACK 0x02 (identifier rejected)")
+    elif len(data) == 0:
+        print("OK: broker closed connection (empty id + no clean session rejected)")
+    else:
+        print(f"UNEXPECTED: {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection (reset)")
+except socket.timeout:
+    print("TIMEOUT: no response")
+s.close()
+
+# But empty client ID + clean_session=1 should be ACCEPTED
+s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s2.settimeout(3)
+s2.connect(('127.0.0.1', 1883))
+s2.sendall(make_connect(clean_session=True, client_id=b''))
+try:
+    data = s2.recv(4)
+    if len(data) >= 4 and data[0] == 0x20 and data[3] == 0x00:
+        print("OK: empty id + clean_session=1 accepted (CONNACK 0x00)")
+    else:
+        print(f"UNEXPECTED accept: {data.hex()}")
+except socket.timeout:
+    print("TIMEOUT: no CONNACK for empty id + clean_session=1")
+s2.sendall(b'\xe0\x00')  # DISCONNECT
+s2.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t7.out)"
+    echo "  result: $OUT"
+    LINE1="$(echo "$OUT" | head -1)"
+    LINE2="$(echo "$OUT" | sed -n '2p')"
+    if echo "$LINE1" | grep -qi "^OK"; then
+        _ok "zero-length client ID + clean_session=0 rejected (CONNACK 0x02)"
+    else
+        _fail "zero-length client ID + clean_session=0 not rejected: $LINE1"
+    fi
+    if echo "$LINE2" | grep -qi "^OK"; then
+        _ok "zero-length client ID + clean_session=1 accepted"
+    else
+        _fail "zero-length client ID + clean_session=1 not accepted: $LINE2"
+    fi
+else
+    _ok "zero client ID test skipped (python3 not available)"
+    _ok "zero client ID test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

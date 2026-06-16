@@ -451,6 +451,16 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
         }
     }
 
+    /* MQTT 3.1.1 §3.1.3.1: zero-length client ID with clean_session=0 is invalid */
+    if (conn.client_id[0] == '\0' && !conn.clean_session) {
+        LOG_WRN("client[%d] zero-length client ID with clean_session=0", c->slot);
+        uint8_t rej[4];
+        int rlen = packet_build_connack(0, CONNACK_ID_REJECTED, rej, sizeof(rej));
+        if (rlen > 0) client_send(c, rej, (size_t)rlen);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     /* kick any existing connection with the same client ID (MQTT 3.1.1 §3.1.4) */
     client_takeover(c, conn.client_id);
 
