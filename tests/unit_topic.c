@@ -325,6 +325,75 @@ static void test_qos_downgrade(void)
     CHECK("qos0 pub to qos1 sub: delivered",   stub_send_total == 1);
 }
 
+static void test_retain_wildcard_deliver(void)
+{
+    printf("\n--- retained deliver on wildcard subscribe ---\n");
+    topic_init();
+    clients_init();
+
+    /* Publish two retained messages on different sub-topics */
+    mqtt_publish_t pa = {0};
+    strncpy(pa.topic, "home/living/temp", MQTT_TOPIC_MAX - 1);
+    pa.payload[0] = 'A'; pa.payload_len = 1; pa.qos = 0; pa.retain = 1;
+    topic_publish(&pa);
+
+    mqtt_publish_t pb = {0};
+    strncpy(pb.topic, "home/kitchen/temp", MQTT_TOPIC_MAX - 1);
+    pb.payload[0] = 'B'; pb.payload_len = 1; pb.qos = 0; pb.retain = 1;
+    topic_publish(&pb);
+
+    mqtt_publish_t pc = {0};
+    strncpy(pc.topic, "other/sensor", MQTT_TOPIC_MAX - 1);
+    pc.payload[0] = 'C'; pc.payload_len = 1; pc.qos = 0; pc.retain = 1;
+    topic_publish(&pc);
+
+    /* Subscribe with + wildcard — should get living/temp and kitchen/temp */
+    topic_subscribe(&clients[0], "home/+/temp", 0);
+    stub_reset();
+    topic_deliver_retained(&clients[0], "home/+/temp", 0);
+    CHECK("+ wildcard: 2 retained delivered", stub_recv_count == 2);
+    CHECK("+ wildcard: living/temp delivered", stub_received("home/living/temp", "A"));
+    CHECK("+ wildcard: kitchen/temp delivered", stub_received("home/kitchen/temp", "B"));
+    CHECK("+ wildcard: other/sensor NOT delivered", !stub_received("other/sensor", "C"));
+
+    /* Subscribe with # wildcard — should get all 3 */
+    topic_subscribe(&clients[1], "home/#", 0);
+    stub_reset();
+    topic_deliver_retained(&clients[1], "home/#", 0);
+    CHECK("# wildcard: 2 home/* retained delivered", stub_recv_count == 2);
+    CHECK("# wildcard: living/temp delivered", stub_received("home/living/temp", "A"));
+    CHECK("# wildcard: kitchen/temp delivered", stub_received("home/kitchen/temp", "B"));
+
+    /* # from root — should get all 3 */
+    topic_subscribe(&clients[2], "#", 0);
+    stub_reset();
+    topic_deliver_retained(&clients[2], "#", 0);
+    CHECK("root # wildcard: 3 retained delivered", stub_recv_count == 3);
+}
+
+static void test_duplicate_subscription(void)
+{
+    printf("\n--- duplicate subscription: single delivery ---\n");
+    topic_init();
+    clients_init();
+    stub_reset();
+
+    /* Subscribe to same filter twice — only one subscription slot should be used */
+    int r1 = topic_subscribe(&clients[0], "dup/t", 0);
+    int r2 = topic_subscribe(&clients[0], "dup/t", 1); /* upgrade QoS */
+    CHECK("second subscribe returns success", r2 == 0);
+    (void)r1;
+
+    mqtt_publish_t pub = {0};
+    strncpy(pub.topic, "dup/t", MQTT_TOPIC_MAX - 1);
+    pub.payload[0] = 'X'; pub.payload_len = 1; pub.qos = 1;
+    pub.packet_id = 10;
+    topic_publish(&pub);
+
+    /* The message must arrive exactly once, regardless of how many subscribe calls */
+    CHECK("duplicate sub: message delivered exactly once", stub_recv_count == 1);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -339,6 +408,8 @@ int main(void)
     test_fanout();
     test_fanout_wildcard();
     test_qos_downgrade();
+    test_retain_wildcard_deliver();
+    test_duplicate_subscription();
 
     printf("\n=== Results: %d passed, %d failed ===\n", pass_count, fail_count);
     return (fail_count > 0) ? 1 : 0;
