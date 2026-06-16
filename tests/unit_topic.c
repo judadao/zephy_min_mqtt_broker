@@ -235,6 +235,35 @@ static void test_retain_overflow(void)
     CHECK("existing retained topic updated in place", stub_received("ret/0", "Z"));
 }
 
+static void test_subscribe_overflow(void)
+{
+    printf("\n--- subscription table overflow ---\n");
+    topic_init();
+    clients_init();
+
+    /* Fill the entire subscription table: 4 clients × 16 topics = 64 slots */
+    int ok = 1;
+    for (int c = 0; c < 4 && ok; c++) {
+        for (int t = 0; t < TOPIC_MAX_SUBS / 4 && ok; t++) {
+            char filter[MQTT_TOPIC_MAX];
+            snprintf(filter, sizeof(filter), "c%d/t%d", c, t);
+            if (topic_subscribe(&clients[c], filter, 0) < 0) {
+                ok = 0; /* table full before expected */
+            }
+        }
+    }
+    CHECK("fill subscription table without error", ok);
+
+    /* One more subscription should fail */
+    int rc = topic_subscribe(&clients[0], "overflow/topic", 0);
+    CHECK("subscribe beyond table capacity returns error", rc < 0);
+
+    /* Unsubscribe one entry and then re-subscribe should succeed */
+    topic_unsubscribe(&clients[0], "c0/t0");
+    rc = topic_subscribe(&clients[0], "overflow/topic", 0);
+    CHECK("subscribe after unsubscribe succeeds", rc == 0);
+}
+
 static void test_fanout(void)
 {
     printf("\n--- fan-out ---\n");
@@ -470,6 +499,7 @@ int main(void)
     test_unsubscribe_all();
     test_retain_store_clear();
     test_retain_overflow();
+    test_subscribe_overflow();
     test_fanout();
     test_fanout_wildcard();
     test_qos_downgrade();
