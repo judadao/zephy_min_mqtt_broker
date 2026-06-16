@@ -56,8 +56,10 @@ BROKER_BIN = $(OUTDIR)/mqtt_broker_$(STAMP)
 CLI_BIN    = $(OUTDIR)/mqtt_cli_$(STAMP)
 CLI_SRCS   = tools/mqtt_cli.c src/packet.c platform/posix/platform_posix.c
 
-UNIT_SRCS_PACKET = tests/unit_packet.c src/packet.c platform/posix/platform_posix.c
-UNIT_SRCS_TOPIC  = tests/unit_topic_match.c
+UNIT_SRCS_PACKET  = tests/unit_packet.c src/packet.c platform/posix/platform_posix.c
+UNIT_SRCS_TOPIC   = tests/unit_topic_match.c
+UNIT_SRCS_SESSION = tests/unit_session.c src/session.c src/packet.c \
+                    platform/posix/platform_posix.c
 LWT_CLI_SRCS      = tests/lwt_client.c src/packet.c platform/posix/platform_posix.c
 KEEPALIVE_CLI_SRCS = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
 
@@ -70,14 +72,18 @@ test-helpers: $(OUTDIR)
 	$(CC) $(CFLAGS) $(KEEPALIVE_CLI_SRCS) -o $(OUTDIR)/keepalive_client $(LDFLAGS)
 
 unit-tests: $(OUTDIR)
-	$(CC) $(CFLAGS) $(UNIT_SRCS_PACKET) -o $(OUTDIR)/unit_packet $(LDFLAGS)
-	$(CC) $(CFLAGS) $(UNIT_SRCS_TOPIC)  -o $(OUTDIR)/unit_topic_match
+	$(CC) $(CFLAGS) $(UNIT_SRCS_PACKET)   -o $(OUTDIR)/unit_packet   $(LDFLAGS)
+	$(CC) $(CFLAGS) $(UNIT_SRCS_TOPIC)    -o $(OUTDIR)/unit_topic_match
+	$(CC) $(CFLAGS) $(UNIT_SRCS_SESSION)  -o $(OUTDIR)/unit_session  $(LDFLAGS)
 	@echo ""
 	@echo "--- unit_packet ---"
 	$(OUTDIR)/unit_packet
 	@echo ""
 	@echo "--- unit_topic_match ---"
 	$(OUTDIR)/unit_topic_match
+	@echo ""
+	@echo "--- unit_session ---"
+	$(OUTDIR)/unit_session
 
 test: all test-helpers unit-tests
 	./scripts/test_broker.sh
