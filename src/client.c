@@ -429,9 +429,17 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     len = packet_build_connack(session_present, CONNACK_ACCEPTED, resp, sizeof(resp));
     client_send(c, resp, (size_t)len);
 
-    /* 5-second tick for keepalive enforcement and QoS-1 in-flight retry */
-    struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
-    plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    /* Tick interval: min(5 s, keepalive/2) so keepalive enforcement always
+     * fires within one tick of the 1.5× deadline (MQTT 3.1.1 §3.1.2.10).
+     * keepalive=0 means disabled; fall back to 5-second tick. */
+    {
+        long tick_sec = 5;
+        if (c->keepalive > 0 && (long)(c->keepalive / 2) < tick_sec)
+            tick_sec = (long)(c->keepalive / 2);
+        if (tick_sec < 1) tick_sec = 1;
+        struct timeval tv = { .tv_sec = tick_sec, .tv_usec = 0 };
+        plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
 
     /* restore subscriptions and drain queued messages for persistent session */
     if (session_present && sess) {
