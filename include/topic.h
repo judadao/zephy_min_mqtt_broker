@@ -27,6 +27,7 @@ int topic_get_sub_snapshots(sub_snapshot_t *out, int max);
 int topic_get_retain_snapshots(retain_snapshot_t *out, int max);
 
 void topic_init(void);
+int  topic_filter_valid(const char *filter);
 int  topic_subscribe(struct client *c, const char *filter, uint8_t qos);
 int  topic_unsubscribe(struct client *c, const char *filter);
 void topic_unsubscribe_all(struct client *c);

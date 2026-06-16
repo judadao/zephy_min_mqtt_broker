@@ -572,6 +572,12 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
             return_codes[i] = 0x80;
             continue;
         }
+        /* Invalid topic filter — reject per MQTT 3.1.1 §4.7.1 */
+        if (!topic_filter_valid(topics[i])) {
+            LOG_WRN("client[%d] SUBSCRIBE invalid filter '%s'", c->slot, topics[i]);
+            return_codes[i] = 0x80;
+            continue;
+        }
         int rc = topic_subscribe(c, topics[i], qos[i]);
         return_codes[i] = (rc == 0) ? qos[i] : 0x80;
         LOG_DBG("client[%d] SUBSCRIBE %s qos=%d rc=%d", c->slot, topics[i], qos[i], rc);

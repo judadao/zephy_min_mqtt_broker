@@ -394,6 +394,32 @@ static void test_duplicate_subscription(void)
     CHECK("duplicate sub: message delivered exactly once", stub_recv_count == 1);
 }
 
+/* ── test_filter_valid ────────────────────────────────────────────────────── */
+
+static void test_filter_valid(void)
+{
+    printf("\n-- test_filter_valid --\n");
+
+    /* valid filters */
+    CHECK("simple path valid",     topic_filter_valid("sport/tennis/player1"));
+    CHECK("lone hash valid",        topic_filter_valid("#"));
+    CHECK("hash at end valid",      topic_filter_valid("sport/#"));
+    CHECK("lone plus valid",        topic_filter_valid("+"));
+    CHECK("plus at end valid",      topic_filter_valid("sport/+"));
+    CHECK("plus in middle valid",   topic_filter_valid("sport/+/player1"));
+    CHECK("plus then hash valid",   topic_filter_valid("+/tennis/#"));
+    CHECK("path then hash valid",   topic_filter_valid("sport/tennis/#"));
+
+    /* invalid filters */
+    CHECK("empty filter invalid",   !topic_filter_valid(""));
+    CHECK("hash not own level",     !topic_filter_valid("sport/tennis#"));
+    CHECK("hash not after /",       !topic_filter_valid("sport#"));
+    CHECK("hash not at end",        !topic_filter_valid("#/sport"));
+    CHECK("plus not own level",     !topic_filter_valid("sport+"));
+    CHECK("plus not end of level",  !topic_filter_valid("+sport"));
+    CHECK("plus mid-level invalid", !topic_filter_valid("sport/a+b"));
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -410,6 +436,7 @@ int main(void)
     test_qos_downgrade();
     test_retain_wildcard_deliver();
     test_duplicate_subscription();
+    test_filter_valid();
 
     printf("\n=== Results: %d passed, %d failed ===\n", pass_count, fail_count);
     return (fail_count > 0) ? 1 : 0;

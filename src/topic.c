@@ -66,6 +66,32 @@ void topic_init(void)
     memset(retains, 0, sizeof(retains));
 }
 
+/* return 1 if filter is a valid MQTT topic filter (MQTT 3.1.1 §4.7.1) */
+int topic_filter_valid(const char *filter)
+{
+    if (!filter || filter[0] == '\0')
+        return 0;
+
+    for (const char *p = filter; *p; p++) {
+        if (*p == '#') {
+            /* '#' must be the last character */
+            if (*(p + 1) != '\0')
+                return 0;
+            /* if not at start, must be preceded by '/' */
+            if (p != filter && *(p - 1) != '/')
+                return 0;
+        } else if (*p == '+') {
+            /* '+' must be preceded by '/' or be first character */
+            if (p != filter && *(p - 1) != '/')
+                return 0;
+            /* '+' must be followed by '/' or end of string */
+            if (*(p + 1) != '/' && *(p + 1) != '\0')
+                return 0;
+        }
+    }
+    return 1;
+}
+
 /* return 1 if topic matches filter (supports + and #) */
 static int topic_match(const char *filter, const char *topic)
 {
