@@ -297,6 +297,24 @@ static void test_build_parse_publish_roundtrip(void)
 
     /* buffer too small → error */
     ASSERT(packet_build_publish(&src, wire, 3) < 0, "publish small buffer returns error");
+
+    /* max-size payload (MQTT_PAYLOAD_MAX bytes) roundtrip */
+    mqtt_publish_t big = {0};
+    strncpy(big.topic, "big/payload", sizeof(big.topic) - 1);
+    memset(big.payload, 0xAB, MQTT_PAYLOAD_MAX);
+    big.payload_len = MQTT_PAYLOAD_MAX;
+    big.qos = 0;
+    wlen = packet_build_publish(&big, wire, sizeof(wire));
+    ASSERT(wlen > 0, "max-payload publish build succeeds");
+    pkt.type_flags = wire[0];
+    packet_decode_remaining_len(wire + 1, (size_t)(wlen - 1), &rem, &rem_bytes);
+    pkt.buf_len = rem;
+    memcpy(pkt.buf, wire + 1 + rem_bytes, rem);
+    memset(&dst, 0, sizeof(dst));
+    ASSERT(packet_parse_publish(&pkt, &dst) == 0,    "max-payload publish parse succeeds");
+    ASSERT_EQ(dst.payload_len, MQTT_PAYLOAD_MAX,     "max-payload length preserved");
+    ASSERT(memcmp(dst.payload, big.payload, MQTT_PAYLOAD_MAX) == 0,
+           "max-payload content preserved");
 }
 
 static void test_parse_connect(void)
