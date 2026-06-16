@@ -95,6 +95,11 @@ int topic_filter_valid(const char *filter)
 /* return 1 if topic matches filter (supports + and #) */
 static int topic_match(const char *filter, const char *topic)
 {
+    /* MQTT 3.1.1 §4.7.2: wildcards must not match topics starting with '$' */
+    if (topic[0] == '$' && (filter[0] == '+' || filter[0] == '#')) {
+        return 0;
+    }
+
     const char *f = filter;
     const char *t = topic;
 

@@ -17,6 +17,11 @@ static int g_fail = 0;
 /* mirrors src/topic.c:topic_match(); keep in sync with production code */
 static int topic_match(const char *filter, const char *topic)
 {
+    /* MQTT 3.1.1 §4.7.2: wildcards must not match topics starting with '$' */
+    if (topic[0] == '$' && (filter[0] == '+' || filter[0] == '#')) {
+        return 0;
+    }
+
     const char *f = filter;
     const char *t = topic;
 
@@ -108,11 +113,10 @@ static void test_edge_cases(void)
     ASSERT(!topic_match("a",     "b"),    "single char mismatch");
     ASSERT( topic_match("+",     "a"),    "+ matches single char");
     ASSERT(!topic_match("+",     ""),     "+ does not match empty topic");
-    /* $SYS topics: spec §4.7.2 says wildcards should not match $SYS,
-       but this implementation does not enforce that restriction.
-       Document current behaviour: # DOES match $SYS (known non-compliance). */
+    /* $SYS topics: MQTT 3.1.1 §4.7.2 — wildcards must not match '$' prefix topics */
     ASSERT( topic_match("$SYS/#", "$SYS/broker"), "$SYS/# matches $SYS/broker");
-    ASSERT( topic_match("#",       "$SYS/broker"), "# matches $SYS (impl does not filter $)");
+    ASSERT(!topic_match("#",       "$SYS/broker"), "# does NOT match $SYS (§4.7.2)");
+    ASSERT(!topic_match("+/broker","$SYS/broker"), "+ does NOT match $SYS first level (§4.7.2)");
 }
 
 int main(void)
