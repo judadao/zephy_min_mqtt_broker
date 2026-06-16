@@ -262,6 +262,22 @@ void client_disconnect(client_t *c)
     c->state = CLIENT_STATE_DISCONNECTING;
 }
 
+/* MQTT 3.1.1 §3.1.4: disconnect any existing client with the same client_id */
+static void client_takeover(client_t *newcomer, const char *client_id)
+{
+    plat_mutex_lock(&pool_lock);
+    for (int i = 0; i < MQTT_MAX_CLIENTS; i++) {
+        if (&clients[i] == newcomer) continue;
+        if (clients[i].state != CLIENT_STATE_CONNECTED) continue;
+        if (strncmp(clients[i].client_id, client_id, MQTT_CLIENT_ID_MAX) == 0) {
+            LOG_WRN("client[%d] kicked by new conn with same id=%s",
+                    clients[i].slot, client_id);
+            clients[i].state = CLIENT_STATE_DISCONNECTING;
+        }
+    }
+    plat_mutex_unlock(&pool_lock);
+}
+
 /* ---------- QoS-1 in-flight queue ---------- */
 
 void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf,
@@ -402,6 +418,9 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 #endif
+
+    /* kick any existing connection with the same client ID (MQTT 3.1.1 §3.1.4) */
+    client_takeover(c, conn.client_id);
 
     strncpy(c->client_id, conn.client_id, sizeof(c->client_id) - 1);
     c->clean_session = conn.clean_session;
