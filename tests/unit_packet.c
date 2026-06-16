@@ -439,6 +439,42 @@ static void test_parse_subscribe(void)
     ASSERT_EQ(qos[1], 0, "subscribe qos[1] = 0");
 }
 
+static void test_parse_subscribe_edge(void)
+{
+    printf("\n--- parse_subscribe edge cases ---\n");
+
+    mqtt_packet_t pkt = {0};
+    uint16_t pid; char topics[4][MQTT_TOPIC_MAX]; uint8_t qos[4]; uint8_t count;
+
+    /* empty payload (only packet_id) — count should be 0 */
+    pkt.type_flags = MQTT_SUBSCRIBE | 0x02;
+    pkt.buf[0] = 0x00; pkt.buf[1] = 0x01; /* packet_id = 1 */
+    pkt.buf_len = 2;
+    count = 99;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) == 0,
+           "subscribe empty payload parses ok");
+    ASSERT_EQ(count, 0, "subscribe empty payload: count = 0");
+    ASSERT_EQ(pid,   1, "subscribe empty payload: packet_id = 1");
+
+    /* truncated packet (only 1 byte) */
+    pkt.buf_len = 1;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
+           "subscribe truncated → error");
+
+    /* qos field masked: wire qos=0xFF is masked to 0x03 (reserved bits) */
+    static const uint8_t body_qos3[] = {
+        0x00, 0x05,                          /* packet_id = 5 */
+        0x00, 0x03, 'a', '/', 'b', 0xFF      /* topic "a/b" with qos byte 0xFF */
+    };
+    pkt.buf_len = sizeof(body_qos3);
+    memcpy(pkt.buf, body_qos3, sizeof(body_qos3));
+    count = 0;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) == 0,
+           "subscribe qos-byte masked succeeds");
+    ASSERT_EQ(count,  1,    "subscribe qos-masked: count = 1");
+    ASSERT_EQ(qos[0], 0x03, "subscribe qos-masked: qos[0] masked to 0x03");
+}
+
 static void test_parse_unsubscribe(void)
 {
     printf("\n--- parse_unsubscribe ---\n");
@@ -603,6 +639,7 @@ int main(void)
     test_parse_connect();
     test_parse_connect_edge();
     test_parse_subscribe();
+    test_parse_subscribe_edge();
     test_parse_unsubscribe();
 
     printf("\n=== Results: %d passed, %d failed ===\n", g_pass, g_fail);
