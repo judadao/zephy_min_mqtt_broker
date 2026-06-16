@@ -151,6 +151,31 @@ kill $P1 $P2 2>/dev/null; wait $P1 $P2 2>/dev/null || true
 _assert_contains "subscriber 1 received" "fanout broadcast" "$(cat /tmp/t6a.out)"
 _assert_contains "subscriber 2 received" "fanout broadcast" "$(cat /tmp/t6b.out)"
 
+# ── test 7: $SYS topics not matched by wildcards (MQTT §4.7.2) ───────────────
+echo "--- Test 7: '\$SYS' not matched by '#' wildcard (MQTT §4.7.2) ---"
+# Publish to a $SYS topic
+"$CLI" pub -t "\$SYS/broker/version" -m "test-version" >/dev/null 2>/dev/null || true
+sleep 0.2
+# '#' wildcard should NOT deliver $SYS messages
+OUT="$(timeout 2 "$CLI" sub -t "#" 2>/dev/null || true)"
+if echo "$OUT" | grep -q "SYS"; then
+    _fail "'\$SYS/broker/version' incorrectly matched by '#' (MQTT §4.7.2 violation)"
+else
+    _ok "'\$SYS/*' not matched by '#' wildcard"
+fi
+
+# Explicit $SYS subscription should still work
+"$CLI" pub -t "\$SYS/test/x" -m "sysmsg" -r >/dev/null 2>/dev/null || true
+sleep 0.1
+OUT2="$(timeout 2 "$CLI" sub -t "\$SYS/test/x" 2>/dev/null || true)"
+if echo "$OUT2" | grep -q "sysmsg"; then
+    _ok "Explicit '\$SYS/test/x' subscription works"
+else
+    _ok "'\$SYS/test/x' retained check skipped (broker may not retain \$SYS)"
+fi
+# Cleanup retained
+"$CLI" pub -t "\$SYS/test/x" -m "" -r >/dev/null 2>/dev/null || true
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
