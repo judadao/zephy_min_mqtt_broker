@@ -161,7 +161,8 @@ void client_thread_fn(void *p1, void *p2, void *p3)
         struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
         plat_setsockopt(c->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     }
-    if (recv_packet(c, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_CONNECT) {
+    /* §3.1.1: CONNECT fixed header lower nibble must be 0 */
+    if (recv_packet(c, &pkt) < 0 || pkt.type_flags != MQTT_CONNECT) {
         LOG_WRN("client[%d] first packet not CONNECT — closing", c->slot);
         client_free(c);
         return;
@@ -188,6 +189,33 @@ void client_thread_fn(void *p1, void *p2, void *p3)
         c->last_seen_ms = plat_uptime_ms();
 
         uint8_t type = pkt.type_flags & 0xF0;
+
+        /* MQTT §2.2.2: validate fixed header reserved bits before dispatching */
+        {
+            uint8_t lower = pkt.type_flags & 0x0F;
+            int bad_flags = 0;
+            switch (type) {
+            /* these three MUST have lower nibble 0x02 */
+            case MQTT_SUBSCRIBE:
+            case MQTT_UNSUBSCRIBE:
+            case MQTT_PUBREL:
+                bad_flags = (lower != 0x02);
+                break;
+            /* PUBLISH uses all 4 bits meaningfully — no reserved check */
+            case MQTT_PUBLISH:
+                break;
+            /* all others MUST have lower nibble 0x00 */
+            default:
+                bad_flags = (lower != 0x00);
+                break;
+            }
+            if (bad_flags) {
+                LOG_WRN("client[%d] bad fixed-header reserved bits 0x%02x — closing",
+                        c->slot, pkt.type_flags);
+                c->state = CLIENT_STATE_DISCONNECTING;
+                break; /* break out of outer while body */
+            }
+        }
 
         switch (type) {
         case MQTT_CONNECT:

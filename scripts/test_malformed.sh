@@ -414,6 +414,104 @@ else
     _ok "SUBSCRIBE packet_id=0 test skipped (python3 not available)"
 fi
 
+# ── Test 13: SUBSCRIBE with reserved bits violated (§2.2.2 / §3.8.1) ─────────
+echo "--- Test 13: SUBSCRIBE with bad fixed-header reserved bits ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t13.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t13'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# SUBSCRIBE with lower nibble = 0x00 (must be 0x02): use 0x80 instead of 0x82
+t = b't/x'
+body = b'\x00\x01' + struct.pack('>H', len(t)) + t + b'\x00'
+pkt = b'\x80' + bytes([len(body)]) + body   # wrong: 0x80, correct: 0x82
+s.sendall(pkt)
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on bad SUBSCRIBE fixed-header")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t13.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on SUBSCRIBE with bad reserved bits (MQTT §3.8.1)"
+    else
+        _fail "broker did not close on SUBSCRIBE with bad reserved bits"
+    fi
+else
+    _ok "SUBSCRIBE reserved bits test skipped (python3 not available)"
+fi
+
+# ── Test 14: PINGREQ with reserved bits violated (§2.2.2 / §3.12.1) ──────────
+echo "--- Test 14: PINGREQ with bad fixed-header reserved bits ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t14.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t14'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# PINGREQ with lower nibble = 0x01 (must be 0x00): use 0xC1 instead of 0xC0
+pkt = b'\xC1\x00'   # wrong: 0xC1, correct: 0xC0
+s.sendall(pkt)
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on bad PINGREQ fixed-header")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t14.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on PINGREQ with bad reserved bits (MQTT §3.12.1)"
+    else
+        _fail "broker did not close on PINGREQ with bad reserved bits"
+    fi
+else
+    _ok "PINGREQ reserved bits test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
