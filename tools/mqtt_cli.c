@@ -170,6 +170,25 @@ static int build_subscribe(uint8_t *out, size_t cap,
     return (int)p;
 }
 
+static int build_unsubscribe(uint8_t *out, size_t cap,
+                              const char *topic, uint16_t pkt_id)
+{
+    uint16_t tlen    = (uint16_t)strlen(topic);
+    uint32_t rem_len = (uint32_t)(2 + 2 + tlen);
+
+    uint8_t rem_enc[4]; size_t rem_bytes;
+    packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes);
+    if (cap < 1 + rem_bytes + rem_len) return -1;
+
+    size_t p = 0;
+    out[p++] = MQTT_UNSUBSCRIBE | 0x02; /* reserved bit 1 */
+    memcpy(out + p, rem_enc, rem_bytes); p += rem_bytes;
+    out[p++] = (uint8_t)(pkt_id >> 8); out[p++] = (uint8_t)(pkt_id & 0xFF);
+    out[p++] = (uint8_t)(tlen >> 8);   out[p++] = (uint8_t)(tlen & 0xFF);
+    memcpy(out + p, topic, tlen); p += tlen;
+    return (int)p;
+}
+
 static int build_pingreq(uint8_t *out, size_t cap)
 {
     if (cap < 2) return -1;
@@ -356,6 +375,53 @@ static int cmd_sub(const char *host, uint16_t port,
     return 0;
 }
 
+/* Connect, subscribe, unsubscribe, then drain briefly to confirm no more msgs. */
+static int cmd_unsub(const char *host, uint16_t port,
+                     const char *client_id, const char *user, const char *pass,
+                     const char *topic, uint8_t qos)
+{
+    int fd = tcp_connect(host, port);
+    if (fd < 0) return 1;
+    if (do_connect(fd, client_id, user, pass, 1) < 0) { close(fd); return 1; }
+
+    uint8_t buf[CLI_BUF_SIZE];
+    int len = build_subscribe(buf, sizeof(buf), topic, qos, 1);
+    if (len < 0 || send_all(fd, buf, (size_t)len) < 0) { close(fd); return 1; }
+
+    mqtt_packet_t pkt;
+    if (recv_pkt(fd, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_SUBACK) {
+        fprintf(stderr, "error: SUBACK not received\n"); close(fd); return 1;
+    }
+    fprintf(stderr, "subscribed to '%s'\n", topic);
+
+    len = build_unsubscribe(buf, sizeof(buf), topic, 2);
+    if (len < 0 || send_all(fd, buf, (size_t)len) < 0) { close(fd); return 1; }
+
+    if (recv_pkt(fd, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_UNSUBACK) {
+        fprintf(stderr, "error: UNSUBACK not received\n"); close(fd); return 1;
+    }
+    fprintf(stderr, "unsubscribed from '%s'\n", topic);
+
+    /* Short drain: any messages that arrive after UNSUBACK are unexpected. */
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    while (recv_pkt(fd, &pkt) == 0) {
+        if ((pkt.type_flags & 0xF0) == MQTT_PUBLISH) {
+            mqtt_publish_t pub;
+            if (packet_parse_publish(&pkt, &pub) == 0) {
+                pub.payload[pub.payload_len] = '\0';
+                /* Print to stderr so caller can detect unexpected messages */
+                fprintf(stderr, "unexpected: %s %s\n", pub.topic, (char *)pub.payload);
+            }
+        }
+    }
+
+    len = build_disconnect(buf, sizeof(buf));
+    send_all(fd, buf, (size_t)len);
+    close(fd);
+    return 0;
+}
+
 static int cmd_status(const char *host, uint16_t port)
 {
     int fd = tcp_connect(host, port);
@@ -390,17 +456,21 @@ static void usage(const char *prog)
 {
     fprintf(stderr,
         "Usage:\n"
-        "  %s pub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
-        "           -t TOPIC -m MSG [-q 0|1|2] [-r] [-s]\n"
+        "  %s pub   [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
+        "            -t TOPIC -m MSG [-q 0|1|2] [-r] [-s]\n"
         "\n"
-        "  %s sub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
-        "           -t TOPIC [-q 0|1|2] [-s]\n"
-        "           -s  persistent session (clean_session=0)\n"
+        "  %s sub   [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
+        "            -t TOPIC [-q 0|1|2] [-s]\n"
+        "            -s  persistent session (clean_session=0)\n"
+        "\n"
+        "  %s unsub [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
+        "            -t TOPIC [-q 0|1|2]\n"
+        "            subscribe, unsubscribe, then drain briefly\n"
         "\n"
         "  %s status [-h HOST] [-p PORT]\n"
         "\n"
         "Defaults: HOST=127.0.0.1  MQTT port=1883  HTTP port=8080\n",
-        prog, prog, prog);
+        prog, prog, prog, prog);
 }
 
 int main(int argc, char *argv[])
@@ -454,6 +524,13 @@ int main(int argc, char *argv[])
             fprintf(stderr, "sub requires -t TOPIC\n"); return 1;
         }
         return cmd_sub(host, port, cid, user, pass, topic, qos, clean_session);
+
+    } else if (strcmp(cmd, "unsub") == 0) {
+        if (!port) port = 1883;
+        if (!topic) {
+            fprintf(stderr, "unsub requires -t TOPIC\n"); return 1;
+        }
+        return cmd_unsub(host, port, cid, user, pass, topic, qos);
 
     } else if (strcmp(cmd, "status") == 0) {
         if (!port) port = 8080;
