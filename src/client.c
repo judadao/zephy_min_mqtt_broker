@@ -595,6 +595,13 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
+    /* MQTT 3.1.1 §3.8.3: SUBSCRIBE payload MUST contain at least one filter */
+    if (count == 0) {
+        LOG_WRN("client[%d] SUBSCRIBE with no topic filters — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     uint8_t return_codes[8];
     for (int i = 0; i < count; i++) {
         /* QoS=3 is reserved — reject per MQTT 3.1.1 §3.8.3 */
