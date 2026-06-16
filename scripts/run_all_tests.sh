@@ -97,6 +97,17 @@ else
     _skip "P2P dynamic routing" "pass --all to include"
 fi
 
+# Dashboard test requires DASHBOARD=1 build and port 8080
+if [ $RUN_ALL -eq 1 ]; then
+    if ! ss -tlnH "sport = :8080" 2>/dev/null | grep -q .; then
+        run_suite "HTTP dashboard (DASHBOARD=1)" "$SCRIPT_DIR/test_dashboard.sh"
+    else
+        _skip "HTTP dashboard" "port 8080 in use"
+    fi
+else
+    _skip "HTTP dashboard" "pass --all to include"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo "════════════════════════════════════════════════"
 echo "  Suites passed : $PASS"
