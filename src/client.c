@@ -506,6 +506,17 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
+    /* MQTT 3.1.1 §4.7.3: PUBLISH topic must not be empty and must not
+     * contain wildcard characters '#' or '+'. */
+    {
+        size_t tlen = strlen(pub.topic);
+        if (tlen == 0 || memchr(pub.topic, '#', tlen) || memchr(pub.topic, '+', tlen)) {
+            LOG_WRN("client[%d] PUBLISH invalid topic '%s' — closing", c->slot, pub.topic);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            return;
+        }
+    }
+
     LOG_DBG("client[%d] PUBLISH topic=%s qos=%d", c->slot, pub.topic, pub.qos);
 
     if (pub.qos == 2) {

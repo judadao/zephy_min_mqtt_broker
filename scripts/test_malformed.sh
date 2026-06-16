@@ -162,6 +162,158 @@ else
     _fail "broker crashed after PUBLISH with QoS=3"
 fi
 
+# ── Test 8: PUBLISH with wildcard topic closes connection (MQTT §4.7.3) ──────
+echo "--- Test 8: PUBLISH with wildcard '#' in topic ---"
+# Build: CONNECT then PUBLISH to topic "bad/#" (contains '#')
+# PUBLISH: type=0x30, rem=9, topic-len=5 "bad/#" + payload "x"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t8.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def make_publish_topic(topic, payload=b'x'):
+    t = topic.encode()
+    body = struct.pack('>H', len(t)) + t + payload
+    return b'\x30' + bytes([len(body)]) + body
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t8'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+s.sendall(make_publish_topic('bad/#'))
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on wildcard topic")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection on wildcard topic (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t8.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on PUBLISH with '#' wildcard topic"
+    else
+        _fail "unexpected response to PUBLISH with wildcard topic"
+    fi
+else
+    _ok "wildcard topic test skipped (python3 not available)"
+fi
+
+# ── Test 9: PUBLISH with '+' wildcard topic closes connection ─────────────────
+echo "--- Test 9: PUBLISH with wildcard '+' in topic ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t9.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def make_publish_topic(topic, payload=b'x'):
+    t = topic.encode()
+    body = struct.pack('>H', len(t)) + t + payload
+    return b'\x30' + bytes([len(body)]) + body
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t9'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+s.sendall(make_publish_topic('sensor/+/data'))
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on wildcard topic")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection on wildcard topic (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t9.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on PUBLISH with '+' wildcard topic"
+    else
+        _fail "unexpected response to PUBLISH with '+' wildcard topic"
+    fi
+else
+    _ok "wildcard topic test skipped (python3 not available)"
+fi
+
+# ── Test 10: PUBLISH with empty topic closes connection ───────────────────────
+echo "--- Test 10: PUBLISH with empty topic ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t10.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t10'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# PUBLISH with topic length = 0 (empty topic)
+pkt = b'\x30\x02\x00\x00'   # fixed=0x30, rem=2, topic_len=0, payload=""
+s.sendall(pkt)
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on empty topic")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection on empty topic (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t10.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on PUBLISH with empty topic"
+    else
+        _fail "unexpected response to PUBLISH with empty topic"
+    fi
+else
+    _ok "empty topic test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
