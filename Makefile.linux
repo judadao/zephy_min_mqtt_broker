@@ -63,15 +63,17 @@ UNIT_SRCS_SESSION = tests/unit_session.c src/session.c src/packet.c \
 UNIT_SRCS_TOPIC2  = tests/unit_topic.c src/topic.c src/packet.c \
                     platform/posix/platform_posix.c
 LWT_CLI_SRCS      = tests/lwt_client.c src/packet.c platform/posix/platform_posix.c
-KEEPALIVE_CLI_SRCS = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
+KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
+SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
 
 .PHONY: all clean test unit-tests test-helpers
 
 all: $(OUTDIR) $(BROKER_BIN) $(CLI_BIN)
 
 test-helpers: $(OUTDIR)
-	$(CC) $(CFLAGS) $(LWT_CLI_SRCS)       -o $(OUTDIR)/lwt_client      $(LDFLAGS)
-	$(CC) $(CFLAGS) $(KEEPALIVE_CLI_SRCS) -o $(OUTDIR)/keepalive_client $(LDFLAGS)
+	$(CC) $(CFLAGS) $(LWT_CLI_SRCS)       -o $(OUTDIR)/lwt_client        $(LDFLAGS)
+	$(CC) $(CFLAGS) $(KEEPALIVE_CLI_SRCS) -o $(OUTDIR)/keepalive_client  $(LDFLAGS)
+	$(CC) $(CFLAGS) $(SLOW_PUBACK_SRCS)   -o $(OUTDIR)/slow_puback_client $(LDFLAGS)
 
 unit-tests: $(OUTDIR)
 	$(CC) $(CFLAGS) $(UNIT_SRCS_PACKET)   -o $(OUTDIR)/unit_packet   $(LDFLAGS)
