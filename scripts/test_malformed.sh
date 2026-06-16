@@ -126,6 +126,30 @@ else
     _fail "broker crashed after rapid malformed connections"
 fi
 
+# ── Test 6: PUBLISH with QoS=3 (reserved) closes connection ─────────────────
+echo "--- Test 6: PUBLISH with QoS=3 (reserved) ---"
+# First connect, then send a PUBLISH with QoS bits = 11 (0x06 in fixed header)
+# CONNECT: \x10\x0e\x00\x04MQTT\x04\x02\x00\x00\x00\x02AB
+# PUBLISH QoS=3: type=0x36 (MQTT_PUBLISH=0x30 | QoS=3<<1=0x06), rem=9, topic 3-byte "t/x" + payload "hi"
+{
+    printf '\x10\x0e\x00\x04MQTT\x04\x02\x00\x00\x00\x02AB'
+    sleep 0.2
+    printf '\x36\x07\x00\x03t/xhi'
+    sleep 0.3
+} | nc -q1 127.0.0.1 1883 >/dev/null 2>/dev/null || \
+{
+    printf '\x10\x0e\x00\x04MQTT\x04\x02\x00\x00\x00\x02AB'
+    sleep 0.2
+    printf '\x36\x07\x00\x03t/xhi'
+    sleep 0.3
+} | nc -w2 127.0.0.1 1883 >/dev/null 2>/dev/null || true
+sleep 0.5
+if _broker_alive && _sanity; then
+    _ok "broker survives PUBLISH with QoS=3 (MQTT §3.3.1.2)"
+else
+    _fail "broker crashed after PUBLISH with QoS=3"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

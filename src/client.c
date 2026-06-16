@@ -483,6 +483,13 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
+    /* MQTT 3.1.1 §3.3.1.2: both QoS bits set (QoS=3) is a protocol error */
+    if (pub.qos == 3) {
+        LOG_WRN("client[%d] PUBLISH with QoS=3 (reserved) — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     LOG_DBG("client[%d] PUBLISH topic=%s qos=%d", c->slot, pub.topic, pub.qos);
 
     if (pub.qos == 2) {
@@ -533,6 +540,11 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
 
     uint8_t return_codes[8];
     for (int i = 0; i < count; i++) {
+        /* QoS=3 is reserved — reject per MQTT 3.1.1 §3.8.3 */
+        if (qos[i] > 2) {
+            return_codes[i] = 0x80;
+            continue;
+        }
         int rc = topic_subscribe(c, topics[i], qos[i]);
         return_codes[i] = (rc == 0) ? qos[i] : 0x80;
         LOG_DBG("client[%d] SUBSCRIBE %s qos=%d rc=%d", c->slot, topics[i], qos[i], rc);
