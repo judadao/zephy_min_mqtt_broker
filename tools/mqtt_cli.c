@@ -107,13 +107,14 @@ static int recv_pkt(int fd, mqtt_packet_t *out)
 
 static int build_connect(uint8_t *out, size_t cap,
                           const char *client_id, uint16_t keepalive,
-                          const char *user, const char *pass)
+                          const char *user, const char *pass,
+                          uint8_t clean_session)
 {
     uint16_t id_len  = (uint16_t)strlen(client_id);
     uint16_t usr_len = user ? (uint16_t)strlen(user) : 0;
     uint16_t pas_len = pass ? (uint16_t)strlen(pass) : 0;
 
-    uint8_t flags = 0x02; /* clean session */
+    uint8_t flags = clean_session ? 0x02 : 0x00;
     if (user) flags |= 0x80;
     if (pass) flags |= 0x40;
 
@@ -188,10 +189,12 @@ static int build_disconnect(uint8_t *out, size_t cap)
 /* ------------------------------------------------------------------ */
 
 static int do_connect(int fd, const char *client_id,
-                       const char *user, const char *pass)
+                       const char *user, const char *pass,
+                       uint8_t clean_session)
 {
     uint8_t buf[CLI_BUF_SIZE];
-    int     len = build_connect(buf, sizeof(buf), client_id, CLI_KEEPALIVE, user, pass);
+    int     len = build_connect(buf, sizeof(buf), client_id, CLI_KEEPALIVE, user, pass,
+                                clean_session);
     if (len < 0 || send_all(fd, buf, (size_t)len) < 0) return -1;
 
     mqtt_packet_t pkt;
@@ -211,7 +214,8 @@ static int do_connect(int fd, const char *client_id,
         fprintf(stderr, "error: broker refused connection: %s (code %u)\n", msg, rc);
         return -1;
     }
-    return 0;
+    /* return session_present flag (bit 0 of byte 0 of variable header) */
+    return (int)(pkt.buf[0] & 0x01);
 }
 
 /* ------------------------------------------------------------------ */
@@ -221,11 +225,13 @@ static int do_connect(int fd, const char *client_id,
 static int cmd_pub(const char *host, uint16_t port,
                    const char *client_id, const char *user, const char *pass,
                    const char *topic, const char *message,
-                   uint8_t qos, uint8_t retain)
+                   uint8_t qos, uint8_t retain, uint8_t clean_session)
 {
     int fd = tcp_connect(host, port);
     if (fd < 0) return 1;
-    if (do_connect(fd, client_id, user, pass) < 0) { close(fd); return 1; }
+    if (do_connect(fd, client_id, user, pass, clean_session) < 0) {
+        close(fd); return 1;
+    }
 
     mqtt_publish_t pub = {0};
     strncpy(pub.topic, topic, sizeof(pub.topic) - 1);
@@ -263,26 +269,50 @@ static int cmd_pub(const char *host, uint16_t port,
 
 static int cmd_sub(const char *host, uint16_t port,
                    const char *client_id, const char *user, const char *pass,
-                   const char *topic, uint8_t qos)
+                   const char *topic, uint8_t qos, uint8_t clean_session)
 {
     int fd = tcp_connect(host, port);
     if (fd < 0) return 1;
-    if (do_connect(fd, client_id, user, pass) < 0) { close(fd); return 1; }
+    int sp = do_connect(fd, client_id, user, pass, clean_session);
+    if (sp < 0) { close(fd); return 1; }
+    if (sp == 1) fprintf(stderr, "session resumed (session_present=1)\n");
 
     uint8_t buf[CLI_BUF_SIZE];
     int len = build_subscribe(buf, sizeof(buf), topic, qos, 1);
     if (len < 0 || send_all(fd, buf, (size_t)len) < 0) { close(fd); return 1; }
 
+    /* Wait for SUBACK; drained PUBLISH packets may arrive first (session resume) */
     mqtt_packet_t pkt;
-    if (recv_pkt(fd, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_SUBACK) {
-        fprintf(stderr, "error: SUBACK not received\n"); close(fd); return 1;
+    for (;;) {
+        if (recv_pkt(fd, &pkt) < 0) {
+            fprintf(stderr, "error: SUBACK not received\n"); close(fd); return 1;
+        }
+        uint8_t t = pkt.type_flags & 0xF0;
+        if (t == MQTT_SUBACK) {
+            break;
+        }
+        if (t == MQTT_PUBLISH) {
+            mqtt_publish_t dpub;
+            if (packet_parse_publish(&pkt, &dpub) == 0) {
+                dpub.payload[dpub.payload_len] = '\0';
+                printf("%s %s\n", dpub.topic, (char *)dpub.payload);
+                fflush(stdout);
+                if (dpub.qos == 1) {
+                    uint8_t ab[4];
+                    int al = packet_build_puback(dpub.packet_id, ab, sizeof(ab));
+                    if (al > 0) send_all(fd, ab, (size_t)al);
+                }
+            }
+        }
+        /* other packets (PINGRESP etc.) are silently ignored */
     }
     if (pkt.buf_len >= 3 && (pkt.buf[2] & 0x80)) {
         fprintf(stderr, "error: subscription refused by broker\n"); close(fd); return 1;
     }
 
     fprintf(stderr, "subscribed to '%s' (qos %u) — Ctrl-C to stop\n", topic, qos);
-    signal(SIGINT, on_sigint);
+    signal(SIGINT,  on_sigint);
+    signal(SIGTERM, on_sigint); /* clean DISCONNECT on kill */
 
     /* 30-second recv timeout; send PINGREQ after CLI_PING_TICKS timeouts */
     struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
@@ -361,10 +391,11 @@ static void usage(const char *prog)
     fprintf(stderr,
         "Usage:\n"
         "  %s pub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
-        "           -t TOPIC -m MSG [-q 0|1] [-r]\n"
+        "           -t TOPIC -m MSG [-q 0|1|2] [-r] [-s]\n"
         "\n"
         "  %s sub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
-        "           -t TOPIC [-q 0|1]\n"
+        "           -t TOPIC [-q 0|1|2] [-s]\n"
+        "           -s  persistent session (clean_session=0)\n"
         "\n"
         "  %s status [-h HOST] [-p PORT]\n"
         "\n"
@@ -383,16 +414,17 @@ int main(int argc, char *argv[])
     snprintf(cid, sizeof(cid), "mqtt_cli_%d", (int)getpid());
     const char *user    = NULL;
     const char *pass    = NULL;
-    const char *topic   = NULL;
-    const char *message = NULL;
-    uint8_t     qos     = 0;
-    uint8_t     retain  = 0;
+    const char *topic         = NULL;
+    const char *message       = NULL;
+    uint8_t     qos           = 0;
+    uint8_t     retain        = 0;
+    uint8_t     clean_session = 1; /* default: clean session */
 
     /* shift argv past the command word so getopt sees only options */
     int    nargc = argc - 1;
     char **nargv = argv + 1;
     int    opt;
-    while ((opt = getopt(nargc, nargv, "h:p:i:u:P:t:m:q:r")) != -1) {
+    while ((opt = getopt(nargc, nargv, "h:p:i:u:P:t:m:q:rs")) != -1) {
         switch (opt) {
         case 'h': host    = optarg; break;
         case 'p': port    = (uint16_t)atoi(optarg); break;
@@ -403,6 +435,7 @@ int main(int argc, char *argv[])
         case 'm': message = optarg; break;
         case 'q': qos     = (uint8_t)atoi(optarg); break;
         case 'r': retain  = 1; break;
+        case 's': clean_session = 0; break; /* persistent session */
         default:  usage(argv[0]); return 1;
         }
     }
@@ -412,14 +445,15 @@ int main(int argc, char *argv[])
         if (!topic || !message) {
             fprintf(stderr, "pub requires -t TOPIC -m MSG\n"); return 1;
         }
-        return cmd_pub(host, port, cid, user, pass, topic, message, qos, retain);
+        return cmd_pub(host, port, cid, user, pass, topic, message, qos, retain,
+                       clean_session);
 
     } else if (strcmp(cmd, "sub") == 0) {
         if (!port) port = 1883;
         if (!topic) {
             fprintf(stderr, "sub requires -t TOPIC\n"); return 1;
         }
-        return cmd_sub(host, port, cid, user, pass, topic, qos);
+        return cmd_sub(host, port, cid, user, pass, topic, qos, clean_session);
 
     } else if (strcmp(cmd, "status") == 0) {
         if (!port) port = 8080;
