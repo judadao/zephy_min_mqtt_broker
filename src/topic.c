@@ -95,6 +95,10 @@ static int topic_match(const char *filter, const char *topic)
     if (*f == '#') {
         return 1;
     }
+    /* MQTT 3.1.1 §4.7.1: "sport/tennis/#" matches "sport/tennis" */
+    if (*f == '/' && *(f + 1) == '#' && *(f + 2) == '\0' && *t == '\0') {
+        return 1;
+    }
     return (*f == '\0' && *t == '\0');
 }
 
