@@ -536,7 +536,7 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
     }
 
     /* MQTT 3.1.1 §4.7.3: PUBLISH topic must not be empty and must not
-     * contain wildcard characters '#' or '+'. */
+     * contain wildcard characters '#' or '+'. (Null bytes rejected in read_str.) */
     {
         size_t tlen = strlen(pub.topic);
         if (tlen == 0 || memchr(pub.topic, '#', tlen) || memchr(pub.topic, '+', tlen)) {

@@ -61,6 +61,10 @@ static int read_str(const uint8_t *buf, size_t buf_len, size_t *pos,
     if (*pos + len > buf_len || len >= out_cap) {
         return -1;
     }
+    /* MQTT 3.1.1 §4.7.3: strings MUST NOT include null (U+0000) */
+    if (memchr(buf + *pos, '\0', len)) {
+        return -1;
+    }
     memcpy(out, buf + *pos, len);
     out[len] = '\0';
     *pos += len;

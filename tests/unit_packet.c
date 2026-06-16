@@ -317,6 +317,40 @@ static void test_build_parse_publish_roundtrip(void)
            "max-payload content preserved");
 }
 
+static void test_parse_publish_null_byte(void)
+{
+    printf("\n--- parse_publish: null byte in topic rejected ---\n");
+
+    /* Build a PUBLISH packet with a null byte embedded in the topic.
+     * Wire: type=0x30, rem_len, topic_len=5 "ab\x00#\x00", payload */
+    uint8_t topic_wire[] = { 'a', 'b', '\x00', '#', 'x' }; /* 5 bytes, null at [2] */
+    /* packet body: topic_len(2) + topic(5) + payload(1) */
+    uint8_t body[10];
+    body[0] = 0x00; body[1] = 5; /* topic length = 5 */
+    memcpy(body + 2, topic_wire, 5);
+    body[7] = 'X'; /* payload byte */
+
+    mqtt_packet_t pkt = {0};
+    pkt.type_flags = MQTT_PUBLISH;
+    pkt.buf_len    = 8;
+    memcpy(pkt.buf, body, 8);
+
+    mqtt_publish_t pub = {0};
+    ASSERT(packet_parse_publish(&pkt, &pub) < 0,
+           "PUBLISH with null byte in topic rejected (MQTT §4.7.3)");
+
+    /* topic without null byte should parse fine */
+    uint8_t ok_topic[] = { 'a', 'b', 'c', '/', 'x' };
+    body[0] = 0x00; body[1] = 5;
+    memcpy(body + 2, ok_topic, 5);
+    pkt.buf_len = 8;
+    memcpy(pkt.buf, body, 8);
+    memset(&pub, 0, sizeof(pub));
+    ASSERT(packet_parse_publish(&pkt, &pub) == 0,
+           "PUBLISH without null byte accepted");
+    ASSERT(strcmp(pub.topic, "abc/x") == 0, "topic 'abc/x' parsed correctly");
+}
+
 static void test_parse_connect(void)
 {
     printf("\n--- parse_connect ---\n");
@@ -636,6 +670,7 @@ int main(void)
     test_build_pingresp();
     test_build_suback();
     test_build_parse_publish_roundtrip();
+    test_parse_publish_null_byte();
     test_parse_connect();
     test_parse_connect_edge();
     test_parse_subscribe();
