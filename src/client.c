@@ -567,14 +567,21 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
         }
         if (!dup) {
             /* store packet_id for dedup, then deliver */
+            int stored = 0;
             for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
                 if (!c->qos2_in[i].in_use) {
                     c->qos2_in[i].packet_id = pub.packet_id;
                     c->qos2_in[i].in_use    = 1;
+                    stored = 1;
                     break;
                 }
             }
-            topic_publish(&pub);
+            if (stored) {
+                topic_publish(&pub);
+            } else {
+                LOG_WRN("client[%d] QoS2-in table full, dropping id=%u topic=%s",
+                        c->slot, pub.packet_id, pub.topic);
+            }
         }
         int len = packet_build_pubrec(pub.packet_id, ack, sizeof(ack));
         client_send(c, ack, (size_t)len);
