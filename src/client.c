@@ -442,10 +442,19 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     uint8_t        resp[4];
     int            len;
 
-    if (packet_parse_connect(pkt, &conn) < 0) {
-        LOG_WRN("client[%d] CONNECT parse error", c->slot);
-        c->state = CLIENT_STATE_DISCONNECTING;
-        return;
+    {
+        int parse_rc = packet_parse_connect(pkt, &conn);
+        if (parse_rc < 0) {
+            if (parse_rc == -2) {
+                /* MQTT §3.2.2.3: name is "MQTT" but level unsupported — MUST send CONNACK 0x01 */
+                uint8_t rej[4];
+                int rlen = packet_build_connack(0, CONNACK_UNACCEPTABLE_PROTO, rej, sizeof(rej));
+                if (rlen > 0) client_send(c, rej, (size_t)rlen);
+            }
+            LOG_WRN("client[%d] CONNECT parse error (rc=%d)", c->slot, parse_rc);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            return;
+        }
     }
 
 #if defined(CONFIG_MQTT_AUTH_ENABLED)

@@ -444,6 +444,48 @@ else
     _ok "protocol name test skipped (python3 not available)"
 fi
 
+# ── Test 10b: MQTT name + wrong level → CONNACK 0x01 (MQTT §3.2.2.3) ─────────
+echo "--- Test 10b: CONNECT 'MQTT' + wrong protocol level → CONNACK 0x01 ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t10b.out 2>&1 || true
+import socket, struct, time
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+# "MQTT" name + level=5 (future, unsupported)
+cid = b'edge_ver'
+rem = 6 + 1 + 1 + 2 + 2 + len(cid)
+pkt  = b'\x10' + bytes([rem])
+pkt += b'\x00\x04MQTT\x05\x02\x00\x00'   # level=5
+pkt += struct.pack('>H', len(cid)) + cid
+s.sendall(pkt)
+try:
+    data = s.recv(4)
+    # CONNACK: 0x20 0x02 sp rc
+    if len(data) >= 4 and data[0] == 0x20 and data[3] == 0x01:
+        print("OK: CONNACK 0x01 (unacceptable protocol version)")
+    elif len(data) == 0:
+        print("CLOSED: broker closed without CONNACK (acceptable)")
+    else:
+        print(f"UNEXPECTED: {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("CLOSED: broker reset (acceptable)")
+except socket.timeout:
+    print("TIMEOUT")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t10b.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "^OK\|^CLOSED"; then
+        _ok "MQTT level=5 → CONNACK 0x01 or close (MQTT §3.2.2.3)"
+    else
+        _fail "unexpected response to unsupported protocol version: $OUT"
+    fi
+else
+    _ok "protocol version test skipped (python3 not available)"
+fi
+
 # ── Test 10: UNSUBSCRIBE with no topic filters closes connection (§3.10.3) ────
 echo "--- Test 10: UNSUBSCRIBE with no topic filters (MQTT §3.10.3) ---"
 if command -v python3 >/dev/null 2>&1; then

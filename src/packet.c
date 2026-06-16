@@ -108,7 +108,7 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
     }
     uint8_t proto_level = b[pos++]; /* must be 4 for MQTT 3.1.1 */
     if (proto_level != 4) {
-        return -1;
+        return -2; /* valid "MQTT" name but unsupported level — caller sends CONNACK 0x01 */
     }
 
     uint8_t connect_flags  = b[pos++];
