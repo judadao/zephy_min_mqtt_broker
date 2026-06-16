@@ -5,6 +5,7 @@
 #include "client.h"
 #include "topic.h"
 #include "session.h"
+#include "packet.h"
 
 LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
@@ -60,7 +61,13 @@ void broker_run(void)
         LOG_INF("New TCP connection fd=%d", fd);
 
         if (client_alloc(fd) < 0) {
-            LOG_WRN("No free client slots, dropping fd=%d", fd);
+            LOG_WRN("No free client slots, sending CONNACK SERVER_UNAVAIL fd=%d", fd);
+            /* MQTT 3.1.1 §3.2.2.3: send SERVER_UNAVAILABLE then close */
+            uint8_t rej[4];
+            int rlen = packet_build_connack(0, CONNACK_SERVER_UNAVAIL, rej, sizeof(rej));
+            if (rlen > 0) {
+                plat_send(fd, rej, (size_t)rlen, 0);
+            }
             plat_close(fd);
         }
     }
