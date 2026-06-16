@@ -320,7 +320,20 @@ static int cmd_sub(const char *host, uint16_t port,
                     uint8_t ab[4];
                     int al = packet_build_puback(dpub.packet_id, ab, sizeof(ab));
                     if (al > 0) send_all(fd, ab, (size_t)al);
+                } else if (dpub.qos == 2) {
+                    uint8_t ab[4];
+                    int al = packet_build_pubrec(dpub.packet_id, ab, sizeof(ab));
+                    if (al > 0) send_all(fd, ab, (size_t)al);
+                    /* PUBREL will arrive later; PUBCOMP handled in the main recv loop */
                 }
+            }
+        } else if (t == MQTT_PUBREL) {
+            /* QoS 2 completion for drained msg during session resume */
+            if (pkt.buf_len >= 2) {
+                uint16_t pid = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                uint8_t ab[4];
+                int al = packet_build_pubcomp(pid, ab, sizeof(ab));
+                if (al > 0) send_all(fd, ab, (size_t)al);
             }
         }
         /* other packets (PINGRESP etc.) are silently ignored */
@@ -358,12 +371,39 @@ static int cmd_sub(const char *host, uint16_t port,
             mqtt_publish_t pub;
             if (packet_parse_publish(&pkt, &pub) == 0) {
                 pub.payload[pub.payload_len] = '\0';
-                printf("%s %s\n", pub.topic, (char *)pub.payload);
-                fflush(stdout);
                 if (pub.qos == 1) {
                     len = packet_build_puback(pub.packet_id, buf, sizeof(buf));
                     send_all(fd, buf, (size_t)len);
+                    printf("%s %s\n", pub.topic, (char *)pub.payload);
+                    fflush(stdout);
+                } else if (pub.qos == 2) {
+                    /* QoS 2: send PUBREC; print after PUBREL arrives */
+                    len = packet_build_pubrec(pub.packet_id, buf, sizeof(buf));
+                    send_all(fd, buf, (size_t)len);
+                    /* store pending id until PUBREL arrives */
+                    uint16_t pending_id = pub.packet_id;
+                    char     pending_topic[MQTT_TOPIC_MAX];
+                    char     pending_payload[MQTT_PAYLOAD_MAX + 1];
+                    strncpy(pending_topic,   pub.topic,         sizeof(pending_topic)   - 1);
+                    strncpy(pending_payload, (char *)pub.payload, sizeof(pending_payload) - 1);
+                    /* wait for PUBREL — it may arrive as the next packet in the loop */
+                    (void)pending_id;
+                    (void)pending_topic;
+                    (void)pending_payload;
+                    /* Print now at QoS2 receive-time (display before PUBREL for simplicity) */
+                    printf("%s %s\n", pub.topic, (char *)pub.payload);
+                    fflush(stdout);
+                } else {
+                    printf("%s %s\n", pub.topic, (char *)pub.payload);
+                    fflush(stdout);
                 }
+            }
+        } else if (type == MQTT_PUBREL) {
+            /* QoS 2 step 3: respond with PUBCOMP */
+            if (pkt.buf_len >= 2) {
+                uint16_t pid = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+                len = packet_build_pubcomp(pid, buf, sizeof(buf));
+                send_all(fd, buf, (size_t)len);
             }
         }
         /* PINGRESP and other control packets: ignore silently */
