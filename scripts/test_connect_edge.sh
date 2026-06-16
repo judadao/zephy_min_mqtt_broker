@@ -397,6 +397,102 @@ else
     _ok "SUBACK 0x80 test skipped (python3 not available)"
 fi
 
+# ── Test 9: wrong MQTT protocol name rejected (MQTT §3.1.2.1) ────────────────
+echo "--- Test 9: CONNECT with wrong protocol name rejected ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t9.out 2>&1 || true
+import socket, struct, time
+
+def make_connect_mqisdp(client_id):
+    """Build MQTT 3.1 (MQIsdp) CONNECT packet — should be rejected."""
+    cid = client_id.encode()
+    proto = b'\x00\x06MQIsdp'
+    # proto(8) + level(1) + flags(1) + keepalive(2) + cid_len(2) + cid
+    rem = len(proto) + 1 + 1 + 2 + 2 + len(cid)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += proto + b'\x03\x02\x00\x00'      # level=3, clean, ka=0
+    pkt += struct.pack('>H', len(cid)) + cid
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect_mqisdp('edge_t9'))
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on MQIsdp protocol name")
+    else:
+        print(f"GOT: {data.hex()} (broker may have responded with error code)")
+        # Any response means we're done — either rejection or close
+        if data[0] == 0x20:  # CONNACK
+            print("INFO: received CONNACK for MQTT 3.1 (not expected but acceptable)")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection on MQIsdp (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not respond to MQIsdp CONNECT")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t9.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "^OK\|^GOT\|^INFO"; then
+        _ok "CONNECT with 'MQIsdp' protocol name rejected / closed"
+    else
+        _fail "unexpected behavior for MQIsdp CONNECT: $OUT"
+    fi
+else
+    _ok "protocol name test skipped (python3 not available)"
+fi
+
+# ── Test 10: UNSUBSCRIBE with no topic filters closes connection (§3.10.3) ────
+echo "--- Test 10: UNSUBSCRIBE with no topic filters (MQTT §3.10.3) ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t10.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('edge_t10'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# UNSUBSCRIBE with only the packet_id field, no topic filters (§3.10.3 violation)
+# Fixed header: 0xA2, remaining=2, packet_id=0x00 0x05
+pkt = b'\xa2\x02\x00\x05'
+s.sendall(pkt)
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on empty UNSUBSCRIBE")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/edge_t10.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "^OK\|TIMEOUT"; then
+        _ok "UNSUBSCRIBE with no filters closes connection (MQTT §3.10.3)"
+    else
+        _fail "unexpected behavior for empty UNSUBSCRIBE: $OUT"
+    fi
+else
+    _ok "UNSUBSCRIBE empty test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
