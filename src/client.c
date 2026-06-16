@@ -588,6 +588,13 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
+    /* MQTT 3.1.1 §2.3.1: packet identifier MUST NOT be 0 */
+    if (packet_id == 0) {
+        LOG_WRN("client[%d] SUBSCRIBE with packet_id=0 — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     uint8_t return_codes[8];
     for (int i = 0; i < count; i++) {
         /* QoS=3 is reserved — reject per MQTT 3.1.1 §3.8.3 */
@@ -625,6 +632,13 @@ static void handle_unsubscribe(client_t *c, const mqtt_packet_t *pkt)
     uint8_t  resp[4];
 
     if (packet_parse_unsubscribe(pkt, &packet_id, topics, &count, 8) < 0) {
+        return;
+    }
+
+    /* MQTT 3.1.1 §2.3.1: packet identifier MUST NOT be 0 */
+    if (packet_id == 0) {
+        LOG_WRN("client[%d] UNSUBSCRIBE with packet_id=0 — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
         return;
     }
 

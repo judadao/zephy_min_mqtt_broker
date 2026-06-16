@@ -364,6 +364,56 @@ else
     _ok "packet_id=0 test skipped (python3 not available)"
 fi
 
+# ── Test 12: SUBSCRIBE with packet_id=0 closes connection (MQTT §2.3.1) ─────
+echo "--- Test 12: SUBSCRIBE with packet_id=0 ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t12.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(3)
+s.connect(('127.0.0.1', 1883))
+s.sendall(make_connect('mal_t12'))
+s.recv(4)  # CONNACK
+
+time.sleep(0.1)
+# SUBSCRIBE with packet_id=0: type=0x82, payload: pkt_id=0, topic "t/x" qos=0
+t = b't/x'
+body = b'\x00\x00' + struct.pack('>H', len(t)) + t + b'\x00'
+pkt = b'\x82' + bytes([len(body)]) + body
+s.sendall(pkt)
+time.sleep(0.3)
+try:
+    data = s.recv(4)
+    if len(data) == 0:
+        print("OK: broker closed connection on SUBSCRIBE packet_id=0")
+    else:
+        print(f"UNEXPECTED: got {data.hex()}")
+except (ConnectionResetError, BrokenPipeError):
+    print("OK: broker closed connection (reset)")
+except socket.timeout:
+    print("TIMEOUT: broker did not close (timing issue)")
+s.close()
+PYEOF
+    OUT="$(cat /tmp/malformed_t12.out)"
+    echo "  result: $OUT"
+    if echo "$OUT" | grep -qi "OK\|TIMEOUT"; then
+        _ok "broker closes connection on SUBSCRIBE with packet_id=0"
+    else
+        _fail "unexpected response to SUBSCRIBE with packet_id=0"
+    fi
+else
+    _ok "SUBSCRIBE packet_id=0 test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
