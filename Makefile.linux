@@ -66,7 +66,7 @@ LWT_CLI_SRCS      = tests/lwt_client.c src/packet.c platform/posix/platform_posi
 KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
 SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
 
-.PHONY: all clean test unit-tests test-helpers
+.PHONY: all clean test test-all unit-tests test-helpers
 
 all: $(OUTDIR) $(BROKER_BIN) $(CLI_BIN)
 
@@ -95,6 +95,9 @@ unit-tests: $(OUTDIR)
 
 test: all test-helpers unit-tests
 	./scripts/test_broker.sh
+
+test-all: all test-helpers unit-tests
+	./scripts/run_all_tests.sh
 
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
