@@ -503,6 +503,90 @@ static void test_parse_unsubscribe(void)
     ASSERT(strcmp(topics[0], t2) == 0,       "unsubscribe single topic correct");
 }
 
+static void test_parse_connect_edge(void)
+{
+    printf("\n--- parse_connect edge cases ---\n");
+
+    /* Helper: build a CONNECT body with a given client ID */
+    /* Header bytes: proto(6) + level(1) + flags(1) + keepalive(2) = 10 bytes */
+    static const uint8_t hdr[] = {
+        0x00, 0x04, 'M', 'Q', 'T', 'T',  /* protocol name */
+        0x04,                              /* level */
+        0x02,                              /* flags: clean session */
+        0x00, 0x3C                         /* keepalive = 60 */
+    };
+
+    uint8_t body[128];
+    mqtt_packet_t pkt = {0};
+    mqtt_connect_t conn;
+    size_t p;
+
+    /* ── zero-length client ID (MQTT 3.1.1 §3.1.3.1: MUST allow with clean=1) */
+    p = 0;
+    memcpy(body + p, hdr, sizeof(hdr)); p += sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 0x00; /* client_id length = 0 */
+    pkt.type_flags = MQTT_CONNECT;
+    pkt.buf_len    = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) == 0,
+           "zero-length client ID accepted");
+    ASSERT(conn.client_id[0] == '\0',
+           "zero-length client ID produces empty string");
+
+    /* ── 23-char client ID — maximum allowed per MQTT_CLIENT_ID_MAX-1 */
+    char id23[24];
+    memset(id23, 'A', 23); id23[23] = '\0';
+    p = 0;
+    memcpy(body + p, hdr, sizeof(hdr)); p += sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 23;
+    memcpy(body + p, id23, 23); p += 23;
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) == 0,
+           "23-char client ID accepted");
+    ASSERT(strncmp(conn.client_id, id23, 23) == 0,
+           "23-char client ID stored correctly");
+
+    /* ── 24-char client ID — one byte over MQTT_CLIENT_ID_MAX-1: must fail */
+    p = 0;
+    memcpy(body + p, hdr, sizeof(hdr)); p += sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 24;
+    memset(body + p, 'B', 24); p += 24;
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+           "24-char client ID rejected (> MQTT_CLIENT_ID_MAX-1)");
+
+    /* ── CONNECT flags: will_retain set but has_will=0 — not a parse error */
+    p = 0;
+    memcpy(body + p, hdr, sizeof(hdr)); p += sizeof(hdr);
+    body[p - 2] = 0x22; /* flags: retain bit set (bit5) but will bit (bit2) = 0 */
+    body[p++] = 0x00; body[p++] = 0x02; /* client_id = "ab" */
+    body[p++] = 'a'; body[p++] = 'b';
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    /* restore keepalive (body[-2] was changed above — fix header in-place) */
+    pkt.buf[sizeof(hdr) - 2] = 0x00; /* keepalive hi */
+    pkt.buf[sizeof(hdr) - 1] = 0x3C; /* keepalive lo */
+    pkt.buf[sizeof(hdr)]     = 0x22; /* flags: bit5=retain, bit2=0 → no will */
+    pkt.buf_len = sizeof(hdr) + 1 + 2 + 2; /* hdr + flags remap + client_id_len + "ab" */
+    /* Rebuild cleanly */
+    p = 0;
+    memcpy(body, hdr, sizeof(hdr));
+    body[sizeof(hdr) - 3] = 0x22; /* overwrite flags byte (offset 7 in hdr) */
+    p = sizeof(hdr);
+    body[p++] = 0x00; body[p++] = 0x02; body[p++] = 'a'; body[p++] = 'b';
+    pkt.buf_len = p;
+    memcpy(pkt.buf, body, p);
+    memset(&conn, 0, sizeof(conn));
+    ASSERT(packet_parse_connect(&pkt, &conn) == 0,
+           "will_retain=1 with has_will=0: parse succeeds (no will read)");
+    ASSERT_EQ(conn.has_will, 0, "has_will=0 despite retain flag");
+}
+
 /* ── main ──────────────────────────────────────────────────────────────────── */
 int main(void)
 {
@@ -517,6 +601,7 @@ int main(void)
     test_build_suback();
     test_build_parse_publish_roundtrip();
     test_parse_connect();
+    test_parse_connect_edge();
     test_parse_subscribe();
     test_parse_unsubscribe();
 
