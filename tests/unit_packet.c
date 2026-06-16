@@ -692,6 +692,49 @@ static void test_parse_connect_edge(void)
     memset(&conn, 0, sizeof(conn));
     ASSERT(packet_parse_connect(&pkt, &conn) < 0,
            "password without username: parse fails (§3.1.2.9)");
+
+    /* ── MQTT 3.1.1 §3.1.2.1: protocol name must be exactly "MQTT" */
+    /* wrong case "MQTt" → error */
+    {
+        uint8_t bad_name[] = {
+            0x00, 0x04, 'M', 'Q', 'T', 't',   /* wrong: 't' not 'T' */
+            0x04, 0x02, 0x00, 0x3C,             /* level, flags, keepalive */
+            0x00, 0x02, 'g', 'h'               /* client_id */
+        };
+        pkt.buf_len = sizeof(bad_name);
+        memcpy(pkt.buf, bad_name, sizeof(bad_name));
+        memset(&conn, 0, sizeof(conn));
+        ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+               "wrong proto name 'MQTt': parse fails (§3.1.2.1)");
+    }
+
+    /* MQTT 3.1 name "MQIsdp" → error (we are strict MQTT 3.1.1 only) */
+    {
+        uint8_t mqisdp[] = {
+            0x00, 0x06, 'M', 'Q', 'I', 's', 'd', 'p',  /* MQTT 3.1 name */
+            0x03, 0x02, 0x00, 0x3C,                      /* level=3, flags, keepalive */
+            0x00, 0x02, 'i', 'j'                         /* client_id */
+        };
+        pkt.buf_len = sizeof(mqisdp);
+        memcpy(pkt.buf, mqisdp, sizeof(mqisdp));
+        memset(&conn, 0, sizeof(conn));
+        ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+               "MQTT 3.1 'MQIsdp' name: parse fails (§3.1.2.1)");
+    }
+
+    /* correct "MQTT" name with level 4 still accepted */
+    {
+        uint8_t good[] = {
+            0x00, 0x04, 'M', 'Q', 'T', 'T',
+            0x04, 0x02, 0x00, 0x3C,
+            0x00, 0x02, 'k', 'l'
+        };
+        pkt.buf_len = sizeof(good);
+        memcpy(pkt.buf, good, sizeof(good));
+        memset(&conn, 0, sizeof(conn));
+        ASSERT(packet_parse_connect(&pkt, &conn) == 0,
+               "correct 'MQTT' proto name + level 4: parse succeeds");
+    }
 }
 
 /* ── main ──────────────────────────────────────────────────────────────────── */

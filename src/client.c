@@ -704,6 +704,13 @@ static void handle_unsubscribe(client_t *c, const mqtt_packet_t *pkt)
         return;
     }
 
+    /* MQTT 3.1.1 §3.10.3: UNSUBSCRIBE MUST contain at least one topic filter */
+    if (count == 0) {
+        LOG_WRN("client[%d] UNSUBSCRIBE with no topic filters — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     for (int i = 0; i < count; i++) {
         topic_unsubscribe(c, topics[i]);
     }

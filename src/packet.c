@@ -94,9 +94,12 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
     size_t         len = pkt->buf_len;
     size_t         pos = 0;
 
-    /* protocol name */
+    /* protocol name: MQTT 3.1.1 §3.1.2.1 — must be exactly "MQTT" */
     char proto[8] = {0};
     if (read_str(b, len, &pos, proto, sizeof(proto)) < 0) {
+        return -1;
+    }
+    if (strcmp(proto, "MQTT") != 0) {
         return -1;
     }
 
