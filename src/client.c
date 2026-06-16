@@ -435,6 +435,13 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     }
 #endif
 
+    /* MQTT 3.1.1 §3.1.2.6: will_qos=3 is a protocol error */
+    if (conn.has_will && conn.will_qos == 3) {
+        LOG_WRN("client[%d] CONNECT will_qos=3 (reserved)", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
+    }
+
     /* MQTT 3.1.1 §4.7.3: will topic must not be empty or contain wildcards */
     if (conn.has_will) {
         size_t wlen = strlen(conn.will_topic);
