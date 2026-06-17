@@ -5,10 +5,11 @@ A minimal MQTT v3.1.1 broker written in C. Runs on both **Linux** (for developme
 ## Features
 
 - MQTT v3.1.1: QoS 0, QoS 1, QoS 2
-- Topic wildcard matching (`+` single-level, `#` multi-level)
+- Topic wildcard matching (`+` single-level, `#` multi-level); `$`-prefixed topics immune to `#` per §4.7.2
 - Retained message store
-- Persistent sessions (`clean_session = 0`) with offline message queuing
+- Persistent sessions (`clean_session = 0`) with offline message queuing; QoS-1 inflight saved to session on TCP disconnect
 - Keepalive timeout enforcement; QoS-1/2 inflight retry with DUP flag
+- Protocol compliance hardening: fixed-header reserved bits (§2.2.2), protocol name/version (§3.1.2.1), CONNACK 0x01 for unsupported version (§3.2.2.3), remaining-length enforcement, malformed-packet close
 - Optional username/password auth (compile-time)
 - Optional HTTP status dashboard + REST API (Linux, port 8080)
 - Optional dynamic broker P2P mode with router election and inter-node routing
@@ -366,7 +367,17 @@ Concurrency: one thread per MQTT client. P2P mode adds discovery, connect/accept
 # stop mosquitto if running on :1883
 sudo systemctl stop mosquitto
 
-./scripts/test_broker.sh
+./scripts/test_broker.sh        # QoS 0/1, wildcard +/#, retained, fan-out, $SYS
+./scripts/test_session.sh       # persistent sessions, offline queuing, inflight retransmit
+./scripts/test_malformed.sh     # malformed packet rejection and connection close
+./scripts/test_connect_edge.sh  # CONNECT edge cases, protocol name/version
+./scripts/test_p2p_dynamic.sh   # two local P2P brokers, cross-node routing (requires P2P=1 build)
 ```
 
-Covers: QoS 0/1, wildcard `+` and `#`, retained delivery and clear, multi-subscriber fan-out. Exits 0 when all 12 tests pass.
+Unit tests (run with `make -f Makefile.linux test`):
+- `tests/unit_packet.c` — packet encode/decode, DUP flag, protocol name/version
+- `tests/unit_session.c` — session create/find/delete, offline queuing, drain, DUP propagation
+- `tests/unit_topic.c` — topic table, retained, fan-out
+- `tests/unit_topic_match.c` — wildcard matching rules, `$`-prefix immunity
+
+281 assertions across all unit tests; all integration suites exit 0.
