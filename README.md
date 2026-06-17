@@ -4,14 +4,16 @@ A minimal MQTT v3.1.1 broker written in C. Runs on both **Linux** (for developme
 
 ## Latest P2P Scale Result
 
-Local POSIX benchmark, `TOTAL_SUBS=200 BROKER_COUNTS="1 2 5 50" MESSAGES=50`:
+Local POSIX benchmark, `TOTAL_SUBS=200 BROKER_COUNTS="1 2 5 50" MESSAGES=50`.
+The script also runs a single local mosquitto baseline by default.
 
-| Brokers | Throughput | p95 latency | Result |
-|---------|------------|-------------|--------|
-| 1 | 75,926.92 msg/s | 0.363 ms | pass |
-| 2 | 56,696.06 msg/s | 0.481 ms | pass |
-| 5 | 67,536.45 msg/s | 0.437 ms | pass |
-| 50 | 81,929.75 msg/s | 0.431 ms | pass |
+| Implementation | Brokers | Throughput | p95 latency | Result |
+|----------------|---------|------------|-------------|--------|
+| mosquitto | 1 | 65,839.96 msg/s | 0.438 ms | pass |
+| mqtt_min_broker | 1 | 73,283.40 msg/s | 0.374 ms | pass |
+| mqtt_min_broker | 2 | 73,424.67 msg/s | 0.377 ms | pass |
+| mqtt_min_broker | 5 | 79,550.40 msg/s | 0.417 ms | pass |
+| mqtt_min_broker | 50 | 65,733.27 msg/s | 0.518 ms | pass |
 
 This result includes next-hop P2P publish routing plus TCP small-packet tuning
 (`TCP_NODELAY`, and `TCP_QUICKACK` on Linux when available).
@@ -182,14 +184,17 @@ TOTAL_SUBS=200 BROKER_COUNTS="1 2 5 50" MESSAGES=50 STARTUP_SEC=1 SYNC_SETTLE_SE
     ./scripts/bench_p2p_scale.sh
 ```
 
+Set `MOSQUITTO_BENCH=0` to skip the mosquitto baseline.
+
 Recent local result:
 
-| Brokers | Total subs | Messages | Throughput | p95 latency |
-|---------|------------|----------|------------|-------------|
-| 1 | 200 | 50 | 75,926.92 msg/s | 0.363 ms |
-| 2 | 200 | 50 | 56,696.06 msg/s | 0.481 ms |
-| 5 | 200 | 50 | 67,536.45 msg/s | 0.437 ms |
-| 50 | 200 | 50 | 81,929.75 msg/s | 0.431 ms |
+| Implementation | Brokers | Total subs | Messages | Throughput | p95 latency |
+|----------------|---------|------------|----------|------------|-------------|
+| mosquitto | 1 | 200 | 50 | 65,839.96 msg/s | 0.438 ms |
+| mqtt_min_broker | 1 | 200 | 50 | 73,283.40 msg/s | 0.374 ms |
+| mqtt_min_broker | 2 | 200 | 50 | 73,424.67 msg/s | 0.377 ms |
+| mqtt_min_broker | 5 | 200 | 50 | 79,550.40 msg/s | 0.417 ms |
+| mqtt_min_broker | 50 | 200 | 50 | 65,733.27 msg/s | 0.518 ms |
 
 The benchmark disables Nagle on its MQTT client sockets. The broker also sets
 `TCP_NODELAY` for MQTT and P2P TCP sockets on POSIX builds, with `TCP_QUICKACK`

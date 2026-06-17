@@ -701,22 +701,34 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                                   const uint8_t *exclude_node_id)
 {
     uint8_t frame[P2P_PUBLISH_FRAME_MAX];
+    uint8_t next_hops[P2P_PEER_MAX][P2P_NODE_ID_LEN];
     uint16_t frame_len;
+    int next_hop_count;
     int sent = 0;
 
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
         return;
     }
+    next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
+                                               next_hops, P2P_PEER_MAX);
+    if (next_hop_count == 0) {
+        return;
+    }
 
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
+        int should_send = 0;
+
         if (!conns[i].connected) {
             continue;
         }
-        if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
-            continue;
+        for (int j = 0; j < next_hop_count; j++) {
+            if (id_equal(conns[i].node_id, next_hops[j])) {
+                should_send = 1;
+                break;
+            }
         }
-        if (p2p_router_next_hop_has_remote_match(conns[i].node_id, msg->topic)) {
+        if (should_send) {
             (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
             sent++;
         }

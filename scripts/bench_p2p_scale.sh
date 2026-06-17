@@ -10,8 +10,10 @@
 #
 # Useful knobs:
 #   TOTAL_SUBS=10000 BROKER_COUNTS="2 5 10 20 50 100" MESSAGES=500 ./scripts/bench_p2p_scale.sh
+#   TOPIC_COUNTS="200 10000" MESSAGE_COUNTS="50 500" ./scripts/bench_p2p_scale.sh
 #   TARGET_P95_MS=10 ./scripts/bench_p2p_scale.sh
 #   STRICT_ESP32=1 ./scripts/bench_p2p_scale.sh
+#   MOSQUITTO_BENCH=0 ./scripts/bench_p2p_scale.sh
 #
 # STRICT_ESP32=1 keeps MQTT_MAX_CLIENTS=8 and uses exactly P2P_PEER_MAX_BENCH
 # instead of auto-raising it to the tested broker count. Use
@@ -20,6 +22,10 @@
 # auto-raised to count-1 for larger tests. ROUTER_COUNT=0 means every broker
 # in that test round is a router, which keeps the benchmark focused on network
 # throughput instead of transient router-election convergence.
+#
+# MOSQUITTO_BENCH=1 runs a single local mosquitto instance with the same load
+# before the mqtt_min_broker rounds, so the output can compare both
+# implementations in one results.csv.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +35,8 @@ OUT="${OUT:-$ROOT/build_out/p2p_scale_bench}"
 TOTAL_SUBS="${TOTAL_SUBS:-10000}"
 BROKER_COUNTS="${BROKER_COUNTS:-2 5 10 20 50 100}"
 MESSAGES="${MESSAGES:-300}"
+TOPIC_COUNTS="${TOPIC_COUNTS:-$TOTAL_SUBS}"
+MESSAGE_COUNTS="${MESSAGE_COUNTS:-$MESSAGES}"
 TARGET_P95_MS="${TARGET_P95_MS:-10}"
 MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-8}"
 P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-10}"
@@ -40,6 +48,8 @@ BASE_P2P_PORT="${BASE_P2P_PORT:-29100}"
 BASE_DISCOVERY_PORT="${BASE_DISCOVERY_PORT:-30100}"
 STARTUP_SEC="${STARTUP_SEC:-2}"
 SYNC_SETTLE_SEC="${SYNC_SETTLE_SEC:-3}"
+MOSQUITTO_BENCH="${MOSQUITTO_BENCH:-1}"
+MOSQUITTO_BIN="${MOSQUITTO_BIN:-mosquitto}"
 
 PASS_COUNT=""
 PIDS=""
@@ -131,6 +141,23 @@ _run_broker() {
         MQTT_P2P_PEERS="$seeds" stdbuf -oL -eL "$bin" > "$log" 2>&1 &
     else
         MQTT_P2P_PEERS="$seeds" "$bin" > "$log" 2>&1 &
+    fi
+    echo $!
+}
+
+_run_mosquitto() {
+    local port="$1" log="$2" conf="$3"
+
+    cat > "$conf" <<EOF
+listener $port 127.0.0.1
+allow_anonymous true
+persistence false
+log_type error
+EOF
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -oL -eL "$MOSQUITTO_BIN" -c "$conf" > "$log" 2>&1 &
+    else
+        "$MOSQUITTO_BIN" -c "$conf" > "$log" 2>&1 &
     fi
     echo $!
 }
@@ -386,86 +413,135 @@ PY
 }
 
 mkdir -p "$OUT"
-echo "broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_per_sec,min_ms,p50_ms,p95_ms,p99_ms,max_ms,pass_p95"
-echo "broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_per_sec,min_ms,p50_ms,p95_ms,p99_ms,max_ms,pass_p95" > "$RESULTS_FILE"
+echo "implementation,broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_per_sec,min_ms,p50_ms,p95_ms,p99_ms,max_ms,pass_p95"
+echo "implementation,broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_per_sec,min_ms,p50_ms,p95_ms,p99_ms,max_ms,pass_p95" > "$RESULTS_FILE"
 
-for count in $BROKER_COUNTS; do
-    _cleanup
+for bench_topics in $TOPIC_COUNTS; do
+    for bench_messages in $MESSAGE_COUNTS; do
+        scenario="t${bench_topics}_m${bench_messages}"
+        echo "# scenario topics=$bench_topics messages=$bench_messages" >&2
 
-    discovery_port=$((BASE_DISCOVERY_PORT + count))
-    per_broker_subs="$(_ceil_div "$TOTAL_SUBS" "$count")"
-    topic_slots=$((per_broker_subs + 32))
-    remote_slots_per_node=$((per_broker_subs + 32))
-    router_count="$ROUTER_COUNT"
-    [ "$router_count" -eq 0 ] && router_count="$count"
-    [ "$router_count" -gt "$count" ] && router_count="$count"
+        if [ "$MOSQUITTO_BENCH" -eq 1 ]; then
+            if ! command -v "$MOSQUITTO_BIN" >/dev/null 2>&1; then
+                echo "[skip] mosquitto not found: $MOSQUITTO_BIN" >&2
+            else
+                _cleanup
+                mqtt_port="$BASE_MQTT_PORT"
+                if _port_in_use "$mqtt_port"; then
+                    echo "[setup] MQTT port $mqtt_port is already in use" >&2
+                    exit 1
+                fi
 
-    if [ "$STRICT_ESP32" -eq 1 ]; then
-        peer_max="$P2P_PEER_MAX_BENCH"
-    else
-        peer_max="$P2P_PEER_MAX_BENCH"
-        [ "$peer_max" -lt $((count - 1)) ] && peer_max=$((count - 1))
-        [ "$peer_max" -lt 10 ] && peer_max=10
-    fi
+                log="$OUT/mosquitto_${scenario}.log"
+                conf="$OUT/mosquitto_${scenario}.conf"
+                : > "$log"
+                pid="$(_run_mosquitto "$mqtt_port" "$log" "$conf")"
+                PIDS="$PIDS $pid"
 
-    _require_free_ports "$count" "$discovery_port"
+                sleep "$STARTUP_SEC"
+                if ! kill -0 "$pid" 2>/dev/null; then
+                    echo "[fail] mosquitto exited during startup" >&2
+                    tail -n 40 "$log" >&2
+                    exit 1
+                fi
+                if ! missing="$(_wait_for_mqtt_ports "$mqtt_port")"; then
+                    echo "[fail] mosquitto MQTT port not ready: $missing" >&2
+                    tail -n 40 "$log" >&2
+                    exit 1
+                fi
 
-    ports_csv=""
-    for ((i = 0; i < count; i++)); do
-        mqtt_port=$((BASE_MQTT_PORT + i))
-        p2p_port=$((BASE_P2P_PORT + i))
-        bin="$OUT/broker_${count}_${i}"
-        _build_node "$bin" "$mqtt_port" "$p2p_port" "$discovery_port" \
-                    "$topic_slots" "$remote_slots_per_node" "$peer_max" "$router_count" || exit 1
-        if [ -z "$ports_csv" ]; then
-            ports_csv="$mqtt_port"
-        else
-            ports_csv="$ports_csv,$mqtt_port"
+                line="$(_run_python_load "$mqtt_port" "$bench_topics" "$bench_messages" "$TARGET_P95_MS" "$SYNC_SETTLE_SEC")"
+                if [[ "$line" == RESULT,* ]]; then
+                    csv="${line#RESULT,}"
+                    echo "mosquitto,$csv"
+                    echo "mosquitto,$csv" >> "$RESULTS_FILE"
+                else
+                    echo "$line"
+                    echo "[fail] unexpected mosquitto benchmark output" >&2
+                    exit 1
+                fi
+            fi
         fi
+
+        for count in $BROKER_COUNTS; do
+            _cleanup
+
+            discovery_port=$((BASE_DISCOVERY_PORT + count))
+            per_broker_subs="$(_ceil_div "$bench_topics" "$count")"
+            topic_slots=$((per_broker_subs + 32))
+            remote_slots_per_node=$((per_broker_subs + 32))
+            router_count="$ROUTER_COUNT"
+            [ "$router_count" -eq 0 ] && router_count="$count"
+            [ "$router_count" -gt "$count" ] && router_count="$count"
+
+            if [ "$STRICT_ESP32" -eq 1 ]; then
+                peer_max="$P2P_PEER_MAX_BENCH"
+            else
+                peer_max="$P2P_PEER_MAX_BENCH"
+                [ "$peer_max" -lt $((count - 1)) ] && peer_max=$((count - 1))
+                [ "$peer_max" -lt 10 ] && peer_max=10
+            fi
+
+            _require_free_ports "$count" "$discovery_port"
+
+            ports_csv=""
+            for ((i = 0; i < count; i++)); do
+                mqtt_port=$((BASE_MQTT_PORT + i))
+                p2p_port=$((BASE_P2P_PORT + i))
+                bin="$OUT/broker_${scenario}_${count}_${i}"
+                _build_node "$bin" "$mqtt_port" "$p2p_port" "$discovery_port" \
+                            "$topic_slots" "$remote_slots_per_node" "$peer_max" "$router_count" || exit 1
+                if [ -z "$ports_csv" ]; then
+                    ports_csv="$mqtt_port"
+                else
+                    ports_csv="$ports_csv,$mqtt_port"
+                fi
+            done
+
+            for ((i = 0; i < count; i++)); do
+                bin="$OUT/broker_${scenario}_${count}_${i}"
+                log="$OUT/broker_${scenario}_${count}_${i}.log"
+                : > "$log"
+                if [ "$i" -eq 0 ]; then
+                    pid="$(_run_broker "$bin" "$log")"
+                else
+                    seed="127.0.0.1:$BASE_P2P_PORT"
+                    pid="$(_run_broker "$bin" "$log" "$seed")"
+                fi
+                PIDS="$PIDS $pid"
+                sleep 0.15
+            done
+
+            sleep "$STARTUP_SEC"
+            for pid in $PIDS; do
+                if ! kill -0 "$pid" 2>/dev/null; then
+                    echo "[fail] broker_count=$count broker exited during startup" >&2
+                    _dump_count_logs "$count"
+                    exit 1
+                fi
+            done
+            if ! missing="$(_wait_for_mqtt_ports "$ports_csv")"; then
+                echo "[fail] broker_count=$count MQTT ports not ready: $missing" >&2
+                _dump_count_logs "$count"
+                exit 1
+            fi
+
+            line="$(_run_python_load "$ports_csv" "$bench_topics" "$bench_messages" "$TARGET_P95_MS" "$SYNC_SETTLE_SEC")"
+            if [[ "$line" == RESULT,* ]]; then
+                csv="${line#RESULT,}"
+                echo "mqtt_min_broker,$csv"
+                echo "mqtt_min_broker,$csv" >> "$RESULTS_FILE"
+                pass="${csv##*,}"
+                if [ "$pass" = "1" ] && [ -z "$PASS_COUNT" ]; then
+                    PASS_COUNT="$count"
+                fi
+            else
+                echo "$line"
+                echo "[fail] unexpected benchmark output for broker_count=$count" >&2
+                exit 1
+            fi
+        done
     done
-
-    for ((i = 0; i < count; i++)); do
-        bin="$OUT/broker_${count}_${i}"
-        log="$OUT/broker_${count}_${i}.log"
-        : > "$log"
-        if [ "$i" -eq 0 ]; then
-            pid="$(_run_broker "$bin" "$log")"
-        else
-            seed="127.0.0.1:$BASE_P2P_PORT"
-            pid="$(_run_broker "$bin" "$log" "$seed")"
-        fi
-        PIDS="$PIDS $pid"
-        sleep 0.15
-    done
-
-    sleep "$STARTUP_SEC"
-    for pid in $PIDS; do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            echo "[fail] broker_count=$count broker exited during startup" >&2
-            _dump_count_logs "$count"
-            exit 1
-        fi
-    done
-    if ! missing="$(_wait_for_mqtt_ports "$ports_csv")"; then
-        echo "[fail] broker_count=$count MQTT ports not ready: $missing" >&2
-        _dump_count_logs "$count"
-        exit 1
-    fi
-
-    line="$(_run_python_load "$ports_csv" "$TOTAL_SUBS" "$MESSAGES" "$TARGET_P95_MS" "$SYNC_SETTLE_SEC")"
-    if [[ "$line" == RESULT,* ]]; then
-        csv="${line#RESULT,}"
-        echo "$csv"
-        echo "$csv" >> "$RESULTS_FILE"
-        pass="${csv##*,}"
-        if [ "$pass" = "1" ] && [ -z "$PASS_COUNT" ]; then
-            PASS_COUNT="$count"
-        fi
-    else
-        echo "$line"
-        echo "[fail] unexpected benchmark output for broker_count=$count" >&2
-        exit 1
-    fi
 done
 
 _cleanup
@@ -480,6 +556,7 @@ target = float(sys.argv[2])
 rows = []
 with open(path, newline="") as f:
     for row in csv.DictReader(f):
+        row["implementation"] = row["implementation"]
         row["broker_count"] = int(row["broker_count"])
         row["msg_per_sec"] = float(row["msg_per_sec"])
         row["p95_ms"] = float(row["p95_ms"])
@@ -490,11 +567,13 @@ with open(path, newline="") as f:
         rows.append(row)
 
 print("# throughput summary")
-print("# brokers,msg_per_sec,p95_ms,p99_ms,lost,pass_p95,trend_vs_previous")
-prev = None
+print("# implementation,brokers,msg_per_sec,p95_ms,p99_ms,lost,pass_p95,trend_vs_previous_same_impl")
+prev_by_impl = {}
 best = None
 first_pass = None
 for row in rows:
+    impl = row["implementation"]
+    prev = prev_by_impl.get(impl)
     trend = "baseline"
     if prev is not None:
         if row["msg_per_sec"] > prev["msg_per_sec"] * 1.05:
@@ -508,32 +587,33 @@ for row in rows:
     if first_pass is None and row["pass_p95"] == 1:
         first_pass = row
     print(
-        f"# {row['broker_count']},{row['msg_per_sec']:.2f},"
+        f"# {impl},{row['broker_count']},{row['msg_per_sec']:.2f},"
         f"{row['p95_ms']:.3f},{row['p99_ms']:.3f},"
         f"{row['lost']},{row['pass_p95']},{trend}"
     )
-    prev = row
+    prev_by_impl[impl] = row
 
 if best:
     print(
-        f"# best throughput: {best['broker_count']} brokers, "
+        f"# best throughput: {best['implementation']} {best['broker_count']} brokers, "
         f"{best['msg_per_sec']:.2f} msg/s, p95={best['p95_ms']:.3f}ms"
     )
 if first_pass:
     print(
         f"# first broker_count meeting p95 <= {target:.3f}ms: "
-        f"{first_pass['broker_count']}"
+        f"{first_pass['implementation']} {first_pass['broker_count']}"
     )
 else:
     print(f"# no tested broker_count met p95 <= {target:.3f}ms")
 
-if len(rows) >= 2:
+own_rows = [row for row in rows if row["implementation"] == "mqtt_min_broker"]
+if len(own_rows) >= 2:
     nondecreasing = all(
-        rows[i]["msg_per_sec"] >= rows[i - 1]["msg_per_sec"] * 0.95
-        for i in range(1, len(rows))
+        own_rows[i]["msg_per_sec"] >= own_rows[i - 1]["msg_per_sec"] * 0.95
+        for i in range(1, len(own_rows))
     )
     if nondecreasing:
-        print("# throughput trend: increased or stayed within 5% tolerance")
+        print("# mqtt_min_broker throughput trend: increased or stayed within 5% tolerance")
     else:
-        print("# throughput trend: not monotonic; inspect broker logs and host CPU/network limits")
+        print("# mqtt_min_broker throughput trend: not monotonic; inspect broker logs and host CPU/network limits")
 PY

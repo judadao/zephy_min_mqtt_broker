@@ -36,6 +36,17 @@ static int id_equal(const uint8_t *a, const uint8_t *b)
     return memcmp(a, b, P2P_NODE_ID_LEN) == 0;
 }
 
+static int hop_in_list(uint8_t hops[][P2P_NODE_ID_LEN], int count,
+                       const uint8_t hop[P2P_NODE_ID_LEN])
+{
+    for (int i = 0; i < count; i++) {
+        if (id_equal(hops[i], hop)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static remote_node_t *find_node_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                        int create)
 {
@@ -208,6 +219,42 @@ int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_L
     }
     plat_mutex_unlock(&router_lock);
     return match;
+}
+
+int p2p_router_find_next_hops(const char *topic,
+                              const uint8_t *exclude_node_id,
+                              uint8_t out[][P2P_NODE_ID_LEN],
+                              int max)
+{
+    int count = 0;
+
+    if (max <= 0) {
+        return 0;
+    }
+
+    plat_mutex_lock(&router_lock);
+    for (int i = 0; i <= P2P_PEER_MAX && count < max; i++) {
+        if (!remote_nodes[i].in_use) {
+            continue;
+        }
+        if (exclude_node_id &&
+            id_equal(remote_nodes[i].next_hop_id, exclude_node_id)) {
+            continue;
+        }
+        if (hop_in_list(out, count, remote_nodes[i].next_hop_id)) {
+            continue;
+        }
+        for (int j = 0; j < P2P_REMOTE_SUBS_PER_NODE; j++) {
+            if (remote_nodes[i].subs[j].in_use &&
+                topic_match(remote_nodes[i].subs[j].filter, topic)) {
+                memcpy(out[count], remote_nodes[i].next_hop_id, P2P_NODE_ID_LEN);
+                count++;
+                break;
+            }
+        }
+    }
+    plat_mutex_unlock(&router_lock);
+    return count;
 }
 
 void p2p_router_publish(const p2p_publish_msg_t *msg,
