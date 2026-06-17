@@ -11,6 +11,9 @@ typedef struct {
     uint8_t self_id[P2P_NODE_ID_LEN];
     p2p_peer_score_t peers[P2P_PEER_MAX + 1]; /* slot 0 is self */
     p2p_role_t role;
+    uint32_t publish_count;
+    uint32_t publish_rate;
+    int64_t publish_window_ms;
 } p2p_state_t;
 
 static p2p_state_t st;
@@ -29,11 +32,33 @@ static int score_before(const p2p_peer_score_t *a, const p2p_peer_score_t *b)
     return id_cmp(a->node_id, b->node_id) < 0;
 }
 
+static int router_target_count(int active_nodes)
+{
+    if (active_nodes <= 1) {
+        return active_nodes;
+    }
+#if P2P_ROUTER_COUNT > 0
+    return P2P_ROUTER_COUNT < active_nodes ? P2P_ROUTER_COUNT : active_nodes;
+#else
+    int target = 1;
+
+    while ((target + 1) * (target + 1) <= active_nodes) {
+        target++;
+    }
+    if (target < 2) {
+        target = 2;
+    }
+    return target < active_nodes ? target : active_nodes;
+#endif
+}
+
 static int32_t local_score(void)
 {
     int free_slots = client_free_slots();
-    int uptime_bonus = plat_uptime_ms() >= 60000 ? 20 : 0;
+    int64_t now = plat_uptime_ms();
+    int uptime_bonus = now >= 60000 ? 20 : 0;
     int active_peers = 0;
+    int publish_penalty;
 
     for (int i = 1; i <= P2P_PEER_MAX; i++) {
         if (st.peers[i].in_use) {
@@ -41,11 +66,18 @@ static int32_t local_score(void)
         }
     }
 
-    /* TODO(E): active_peers approximates load but ignores publish throughput;
-     * a heavily-loaded router retains its role until it loses client slots.
-     * Subtract a publish-rate moving average (publishes/s) so hot routers shed
-     * the ROUTER role before they become the bottleneck. */
-    return (free_slots * 10) + uptime_bonus - (active_peers * 5);
+    if (st.publish_window_ms == 0) {
+        st.publish_window_ms = now;
+    } else if (now - st.publish_window_ms >= 1000) {
+        int64_t elapsed = now - st.publish_window_ms;
+        st.publish_rate = (uint32_t)(((uint64_t)st.publish_count * 1000U) /
+                                     (uint64_t)elapsed);
+        st.publish_count = 0;
+        st.publish_window_ms = now;
+    }
+
+    publish_penalty = st.publish_rate > 1000U ? 1000 : (int)st.publish_rate;
+    return (free_slots * 10) + uptime_bonus - (active_peers * 5) - publish_penalty;
 }
 
 static void expire_old_peers(void)
@@ -64,6 +96,7 @@ static void recompute_role_locked(void)
 {
     p2p_peer_score_t sorted[P2P_PEER_MAX + 1];
     int count = 0;
+    int router_count;
     p2p_role_t old_role = st.role;
 
     expire_old_peers();
@@ -87,8 +120,9 @@ static void recompute_role_locked(void)
         }
     }
 
+    router_count = router_target_count(count);
     st.role = P2P_ROLE_LEAF;
-    for (int i = 0; i < count && i < P2P_ROUTER_COUNT; i++) {
+    for (int i = 0; i < count && i < router_count; i++) {
         if (id_cmp(sorted[i].node_id, st.self_id) == 0) {
             st.role = P2P_ROLE_ROUTER;
             break;
@@ -151,6 +185,26 @@ void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr)
         st.peers[slot].last_seen_ms = plat_uptime_ms();
         st.peers[slot].in_use = 1;
         recompute_role_locked();
+    }
+    plat_mutex_unlock(&p2p_lock);
+}
+
+void p2p_election_record_publish(void)
+{
+    int64_t now = plat_uptime_ms();
+
+    plat_mutex_lock(&p2p_lock);
+    if (st.publish_window_ms == 0) {
+        st.publish_window_ms = now;
+    } else if (now - st.publish_window_ms >= 1000) {
+        int64_t elapsed = now - st.publish_window_ms;
+        st.publish_rate = (uint32_t)(((uint64_t)st.publish_count * 1000U) /
+                                     (uint64_t)elapsed);
+        st.publish_count = 0;
+        st.publish_window_ms = now;
+    }
+    if (st.publish_count < UINT32_MAX) {
+        st.publish_count++;
     }
     plat_mutex_unlock(&p2p_lock);
 }

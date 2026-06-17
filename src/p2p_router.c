@@ -41,8 +41,16 @@ typedef struct {
     uint8_t in_use;
 } exact_route_t;
 
+typedef struct {
+    uint8_t owner_id[P2P_NODE_ID_LEN];
+    uint8_t next_hop_id[P2P_NODE_ID_LEN];
+    char filter[MQTT_TOPIC_MAX];
+    uint8_t in_use;
+} wildcard_route_t;
+
 static remote_node_t remote_nodes[P2P_PEER_MAX + 1];
 static exact_route_t exact_routes[P2P_REMOTE_EXACT_ROUTE_MAX];
+static wildcard_route_t wildcard_routes[P2P_REMOTE_EXACT_ROUTE_MAX];
 PLAT_MUTEX_DEFINE(router_lock);
 
 static int id_equal(const uint8_t *a, const uint8_t *b)
@@ -123,6 +131,39 @@ static void exact_route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
     }
 }
 
+static void wildcard_route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                         const uint8_t next_hop_id[P2P_NODE_ID_LEN],
+                                         const char *filter)
+{
+    wildcard_route_t *free_route = NULL;
+
+    if (filter_is_exact(filter)) {
+        return;
+    }
+
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        wildcard_route_t *route = &wildcard_routes[i];
+
+        if (route->in_use &&
+            id_equal(route->owner_id, owner_id) &&
+            strcmp(route->filter, filter) == 0) {
+            memcpy(route->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+            return;
+        }
+        if (!route->in_use && !free_route) {
+            free_route = route;
+        }
+    }
+
+    if (free_route) {
+        memset(free_route, 0, sizeof(*free_route));
+        memcpy(free_route->owner_id, owner_id, P2P_NODE_ID_LEN);
+        memcpy(free_route->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+        strncpy(free_route->filter, filter, sizeof(free_route->filter) - 1);
+        free_route->in_use = 1;
+    }
+}
+
 static void exact_route_remove_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                       const char *filter)
 {
@@ -135,6 +176,18 @@ static void exact_route_remove_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
     }
 }
 
+static void wildcard_route_remove_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                         const char *filter)
+{
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        if (wildcard_routes[i].in_use &&
+            id_equal(wildcard_routes[i].owner_id, owner_id) &&
+            strcmp(wildcard_routes[i].filter, filter) == 0) {
+            wildcard_routes[i].in_use = 0;
+        }
+    }
+}
+
 static void exact_routes_remove_node_locked(const uint8_t node_id[P2P_NODE_ID_LEN])
 {
     for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
@@ -142,6 +195,35 @@ static void exact_routes_remove_node_locked(const uint8_t node_id[P2P_NODE_ID_LE
             (id_equal(exact_routes[i].owner_id, node_id) ||
              id_equal(exact_routes[i].next_hop_id, node_id))) {
             exact_routes[i].in_use = P2P_EXACT_ROUTE_DELETED;
+        }
+    }
+}
+
+static void wildcard_routes_remove_node_locked(const uint8_t node_id[P2P_NODE_ID_LEN])
+{
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        if (wildcard_routes[i].in_use &&
+            (id_equal(wildcard_routes[i].owner_id, node_id) ||
+             id_equal(wildcard_routes[i].next_hop_id, node_id))) {
+            wildcard_routes[i].in_use = 0;
+        }
+    }
+}
+
+static void route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                const uint8_t next_hop_id[P2P_NODE_ID_LEN],
+                                const char *filter)
+{
+    exact_route_upsert_locked(owner_id, next_hop_id, filter);
+    wildcard_route_upsert_locked(owner_id, next_hop_id, filter);
+}
+
+static void node_routes_refresh_locked(const remote_node_t *node)
+{
+    for (int i = 0; i < P2P_REMOTE_SUBS_PER_NODE; i++) {
+        if (node->subs[i].in_use) {
+            route_upsert_locked(node->owner_id, node->next_hop_id,
+                                node->subs[i].filter);
         }
     }
 }
@@ -248,7 +330,11 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         strncpy(node->subs[slot].filter, filter, sizeof(node->subs[slot].filter) - 1);
         node->subs[slot].qos = qos;
         node->subs[slot].in_use = 1;
-        exact_route_upsert_locked(owner_id, node->next_hop_id, filter);
+        if (route_changed) {
+            node_routes_refresh_locked(node);
+        } else {
+            route_upsert_locked(owner_id, node->next_hop_id, filter);
+        }
     }
     plat_mutex_unlock(&router_lock);
     return changed;
@@ -268,6 +354,7 @@ int p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                 strcmp(node->subs[i].filter, filter) == 0) {
                 node->subs[i].in_use = 0;
                 exact_route_remove_locked(owner_id, filter);
+                wildcard_route_remove_locked(owner_id, filter);
                 changed = 1;
             }
         }
@@ -288,6 +375,7 @@ void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN])
         }
     }
     exact_routes_remove_node_locked(owner_id);
+    wildcard_routes_remove_node_locked(owner_id);
     plat_mutex_unlock(&router_lock);
 }
 
@@ -377,29 +465,20 @@ int p2p_router_find_next_hops(const char *topic,
         return count;
     }
 
-    /* TODO(C): wildcard routing is O(P2P_PEER_MAX * P2P_REMOTE_SUBS_PER_NODE)
-     * under router_lock, serialising all concurrent publishes on a router.
-     * Partition the topic space by consistent hash across ROUTERs so each
-     * router owns a disjoint slice; wildcard lookups then hit only local state
-     * without contending the global lock. */
-    for (int i = 0; i <= P2P_PEER_MAX && count < max; i++) {
-        if (!remote_nodes[i].in_use) {
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX && count < max; i++) {
+        if (!wildcard_routes[i].in_use) {
             continue;
         }
         if (exclude_node_id &&
-            id_equal(remote_nodes[i].next_hop_id, exclude_node_id)) {
+            id_equal(wildcard_routes[i].next_hop_id, exclude_node_id)) {
             continue;
         }
-        if (hop_in_list(out, count, remote_nodes[i].next_hop_id)) {
+        if (hop_in_list(out, count, wildcard_routes[i].next_hop_id)) {
             continue;
         }
-        for (int j = 0; j < P2P_REMOTE_SUBS_PER_NODE; j++) {
-            if (remote_nodes[i].subs[j].in_use &&
-                topic_match(remote_nodes[i].subs[j].filter, topic)) {
-                memcpy(out[count], remote_nodes[i].next_hop_id, P2P_NODE_ID_LEN);
-                count++;
-                break;
-            }
+        if (topic_match(wildcard_routes[i].filter, topic)) {
+            memcpy(out[count], wildcard_routes[i].next_hop_id, P2P_NODE_ID_LEN);
+            count++;
         }
     }
     plat_mutex_unlock(&router_lock);

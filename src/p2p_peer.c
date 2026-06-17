@@ -26,6 +26,12 @@ typedef struct {
 } p2p_conn_t;
 
 typedef struct {
+    int fd;
+    uint8_t connected;
+    uint8_t node_id[P2P_NODE_ID_LEN];
+} p2p_send_slot_t;
+
+typedef struct {
     uint8_t origin_id[P2P_NODE_ID_LEN];
     uint16_t seq;
 } seen_msg_t;
@@ -49,6 +55,8 @@ static uint16_t local_seq;
 static int listen_fd = -1;
 PLAT_MUTEX_DEFINE(peer_lock);
 PLAT_MUTEX_DEFINE(seen_lock);
+static p2p_send_slot_t send_slots[P2P_PEER_MAX];
+PLAT_MUTEX_DEFINE(send_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -69,6 +77,68 @@ static int id_equal(const uint8_t *a, const uint8_t *b)
 }
 
 static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *except);
+
+static int conn_slot(const p2p_conn_t *c)
+{
+    return (int)(c - conns);
+}
+
+static void send_slot_update(const p2p_conn_t *c)
+{
+    int slot = conn_slot(c);
+
+    if (slot < 0 || slot >= P2P_PEER_MAX) {
+        return;
+    }
+
+    plat_mutex_lock(&send_lock);
+    if (c->connected) {
+        send_slots[slot].fd = c->fd;
+        send_slots[slot].connected = 1;
+        memcpy(send_slots[slot].node_id, c->node_id, P2P_NODE_ID_LEN);
+    } else {
+        memset(&send_slots[slot], 0, sizeof(send_slots[slot]));
+        send_slots[slot].fd = -1;
+    }
+    plat_mutex_unlock(&send_lock);
+}
+
+static void send_slot_clear(int slot)
+{
+    if (slot < 0 || slot >= P2P_PEER_MAX) {
+        return;
+    }
+
+    plat_mutex_lock(&send_lock);
+    memset(&send_slots[slot], 0, sizeof(send_slots[slot]));
+    send_slots[slot].fd = -1;
+    plat_mutex_unlock(&send_lock);
+}
+
+static int collect_send_fds(const uint8_t next_hops[][P2P_NODE_ID_LEN],
+                            int next_hop_count, int *fds, int max)
+{
+    int count = 0;
+
+    if (next_hop_count <= 0 || max <= 0) {
+        return 0;
+    }
+
+    plat_mutex_lock(&send_lock);
+    for (int i = 0; i < next_hop_count && count < max; i++) {
+        for (int j = 0; j < P2P_PEER_MAX; j++) {
+            if (!send_slots[j].connected) {
+                continue;
+            }
+            if (id_equal(send_slots[j].node_id, next_hops[i])) {
+                fds[count++] = send_slots[j].fd;
+                break;
+            }
+        }
+    }
+    plat_mutex_unlock(&send_lock);
+    return count;
+}
 
 static int id_cmp(const uint8_t *a, const uint8_t *b)
 {
@@ -285,6 +355,7 @@ static void close_conn(p2p_conn_t *c)
 {
     uint8_t node_id[P2P_NODE_ID_LEN];
     uint8_t had_node = 0;
+    int slot = conn_slot(c);
 
     plat_mutex_lock(&peer_lock);
     if (c->connected) {
@@ -297,6 +368,7 @@ static void close_conn(p2p_conn_t *c)
     memset(c, 0, sizeof(*c));
     c->fd = -1;
     plat_mutex_unlock(&peer_lock);
+    send_slot_clear(slot);
 
     if (had_node && !conn_exists(node_id, NULL)) {
         p2p_router_remove_node(node_id);
@@ -331,6 +403,7 @@ static void close_duplicate_conns(const uint8_t node_id[P2P_NODE_ID_LEN],
             }
             memset(&conns[i], 0, sizeof(conns[i]));
             conns[i].fd = -1;
+            send_slot_clear(i);
         }
     }
     plat_mutex_unlock(&peer_lock);
@@ -434,6 +507,7 @@ static void peer_loop(void *p1, void *p2, void *p3)
     memcpy(c->node_id, ann->node_id, P2P_NODE_ID_LEN);
     c->role = ann->role;
     c->connected = 1;
+    send_slot_update(c);
     p2p_election_update_peer(ann, c->addr);
     LOG_INF("P2P peer connected role=%s", c->role == P2P_ROLE_ROUTER ? "ROUTER" : "LEAF");
     advertise_local_subs_to(c);
@@ -460,6 +534,7 @@ static void peer_loop(void *p1, void *p2, void *p3)
         } else if (type == P2P_HELLO && len == sizeof(p2p_announce_t)) {
             ann = (p2p_announce_t *)buf;
             c->role = ann->role;
+            send_slot_update(c);
             p2p_election_update_peer(ann, c->addr);
         }
     }
@@ -633,8 +708,10 @@ void p2p_peer_start(void)
     int opt = 1;
 
     memset(conns, 0, sizeof(conns));
+    memset(send_slots, 0, sizeof(send_slots));
     for (int i = 0; i < P2P_PEER_MAX; i++) {
         conns[i].fd = -1;
+        send_slots[i].fd = -1;
     }
 
     listen_fd = plat_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -712,30 +789,11 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
         return;
     }
+    p2p_election_record_publish();
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
 
-    /* TODO(F): peer_lock is held only to scan conns[] and collect fds; keep a
-     * pre-built router_fds[] array maintained on connect/disconnect so the
-     * publish hot path needs no lock and no scan here. */
-    plat_mutex_lock(&peer_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
-        int should_send = 0;
-
-        if (!conns[i].connected) {
-            continue;
-        }
-        for (int j = 0; j < next_hop_count; j++) {
-            if (id_equal(conns[i].node_id, next_hops[j])) {
-                should_send = 1;
-                break;
-            }
-        }
-        if (should_send && fd_count < P2P_PEER_MAX) {
-            fds[fd_count++] = conns[i].fd;
-        }
-    }
-    plat_mutex_unlock(&peer_lock);
+    fd_count = collect_send_fds(next_hops, next_hop_count, fds, P2P_PEER_MAX);
 
     for (int i = 0; i < fd_count; i++) {
         if (send_frame(fds[i], P2P_PUBLISH, frame, frame_len) == 0) {

@@ -18,11 +18,8 @@
 #define P2P_PEER_MAX          10
 #endif
 #endif
-/* TODO(A): P2P_ROUTER_COUNT=2 is a static bottleneck; at N nodes all traffic
- * funnels through 2 routers and throughput drops. Derive dynamically, e.g.
- * max(2, floor(sqrt(active_peer_count))), and re-elect when N changes. */
 #ifndef P2P_ROUTER_COUNT
-#define P2P_ROUTER_COUNT      2
+#define P2P_ROUTER_COUNT      0
 #endif
 #ifndef P2P_ANNOUNCE_MS
 #define P2P_ANNOUNCE_MS       5000
@@ -100,6 +97,7 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
 void p2p_election_init(const uint8_t node_id[P2P_NODE_ID_LEN]);
 void p2p_election_update_self(void);
 void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr);
+void p2p_election_record_publish(void);
 p2p_role_t p2p_election_role(void);
 int p2p_election_snapshot(p2p_peer_score_t *out, int max);
 void p2p_election_build_announce(p2p_announce_t *out);
