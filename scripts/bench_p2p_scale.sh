@@ -50,6 +50,9 @@ STARTUP_SEC="${STARTUP_SEC:-2}"
 SYNC_SETTLE_SEC="${SYNC_SETTLE_SEC:-3}"
 MOSQUITTO_BENCH="${MOSQUITTO_BENCH:-1}"
 MOSQUITTO_BIN="${MOSQUITTO_BIN:-mosquitto}"
+DISTRIBUTED_PUBLISHERS="${DISTRIBUTED_PUBLISHERS:-0}"
+SCALE_MESSAGES_BY_BROKER="${SCALE_MESSAGES_BY_BROKER:-0}"
+STATIC_SEED_FANOUT="${STATIC_SEED_FANOUT:-1}"
 
 PASS_COUNT=""
 PIDS=""
@@ -96,6 +99,30 @@ _require_free_ports() {
 _ceil_div() {
     local n="$1" d="$2"
     echo $(((n + d - 1) / d))
+}
+
+_seed_list() {
+    local index="$1"
+    local first=1
+    local seeds=""
+    local start=0
+
+    if [ "$index" -le 0 ]; then
+        echo ""
+        return
+    fi
+    if [ "$STATIC_SEED_FANOUT" -gt 0 ] && [ "$index" -gt "$STATIC_SEED_FANOUT" ]; then
+        start=$((index - STATIC_SEED_FANOUT))
+    fi
+    for ((s = start; s < index; s++)); do
+        if [ "$first" -eq 1 ]; then
+            first=0
+        else
+            seeds="$seeds,"
+        fi
+        seeds="${seeds}127.0.0.1:$((BASE_P2P_PORT + s))"
+    done
+    echo "$seeds"
 }
 
 _build_node() {
@@ -208,11 +235,13 @@ _run_python_load() {
     local target_ms="$4"
     local sync_settle="$5"
 
-    python3 - "$ports_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" <<'PY'
+    python3 - "$ports_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
+        "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" <<'PY'
 import select
 import socket
 import statistics
 import sys
+import threading
 import time
 
 ports = [int(p) for p in sys.argv[1].split(",") if p]
@@ -220,6 +249,8 @@ total_subs = int(sys.argv[2])
 messages = int(sys.argv[3])
 target_ms = float(sys.argv[4])
 sync_settle = float(sys.argv[5])
+distributed_publishers = int(sys.argv[6]) != 0
+scale_messages_by_broker = int(sys.argv[7]) != 0
 
 HOST = "127.0.0.1"
 KEEPALIVE = 60
@@ -350,21 +381,62 @@ for owner, port in enumerate(ports):
 setup_sec = time.monotonic() - setup_start
 time.sleep(sync_settle)
 
-pub_sock = connect_client(ports[0], "bench-pub")
-remote_topics = [t for owner, ts in enumerate(topics_by_broker) if owner != 0 for t in ts]
-if not remote_topics:
-    remote_topics = [t for ts in topics_by_broker for t in ts]
+pub_socks = []
+pub_count = broker_count if distributed_publishers else 1
+for i in range(pub_count):
+    pub_socks.append(connect_client(ports[i], f"bench-pub-{i}"))
+
+remote_topics_by_pub = []
+for pub_idx in range(pub_count):
+    remote = [t for owner, ts in enumerate(topics_by_broker)
+              if owner != pub_idx for t in ts]
+    if not remote:
+        remote = [t for ts in topics_by_broker for t in ts]
+    remote_topics_by_pub.append(remote)
+
+base_messages = messages
+if scale_messages_by_broker:
+    messages = base_messages * broker_count
 
 send_times = {}
 lat_ms = []
 received = 0
 send_start = time.monotonic()
-for seq in range(messages):
-    topic = remote_topics[seq % len(remote_topics)]
-    now_ns = time.time_ns()
-    payload = f"{seq},{now_ns}".encode()
-    send_times[seq] = now_ns
-    publish_qos0(pub_sock, topic, payload)
+if distributed_publishers and pub_count > 1:
+    start_event = threading.Event()
+    errors = []
+
+    def publish_worker(pub_idx):
+        topics = remote_topics_by_pub[pub_idx]
+        try:
+            start_event.wait()
+            for seq in range(pub_idx, messages, pub_count):
+                now_ns = time.time_ns()
+                payload = f"{seq},{now_ns}".encode()
+                send_times[seq] = now_ns
+                topic = topics[(seq // pub_count) % len(topics)]
+                publish_qos0(pub_socks[pub_idx], topic, payload)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=publish_worker, args=(i,))
+               for i in range(pub_count)]
+    for thread in threads:
+        thread.start()
+    start_event.set()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
+else:
+    for seq in range(messages):
+        pub_idx = seq % pub_count
+        topics = remote_topics_by_pub[pub_idx]
+        topic = topics[(seq // pub_count) % len(topics)]
+        now_ns = time.time_ns()
+        payload = f"{seq},{now_ns}".encode()
+        send_times[seq] = now_ns
+        publish_qos0(pub_socks[pub_idx], topic, payload)
 
 deadline = time.monotonic() + max(5.0, messages * 0.05)
 while received < messages and time.monotonic() < deadline:
@@ -389,7 +461,7 @@ elapsed = time.monotonic() - send_start
 lost = messages - received
 throughput = received / elapsed if elapsed > 0 else 0.0
 
-for sock in [pub_sock] + sub_socks:
+for sock in pub_socks + sub_socks:
     try:
         send_all(sock, bytes([MQTT_DISCONNECT, 0]))
         sock.close()
@@ -505,7 +577,7 @@ for bench_topics in $TOPIC_COUNTS; do
                 if [ "$i" -eq 0 ]; then
                     pid="$(_run_broker "$bin" "$log")"
                 else
-                    seed="127.0.0.1:$BASE_P2P_PORT"
+                    seed="$(_seed_list "$i")"
                     pid="$(_run_broker "$bin" "$log" "$seed")"
                 fi
                 PIDS="$PIDS $pid"

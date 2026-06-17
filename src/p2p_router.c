@@ -15,6 +15,12 @@ LOG_MODULE_REGISTER(mqtt_p2p_router, LOG_LEVEL_INF);
 #endif
 #endif
 
+#define P2P_REMOTE_NODE_MAX (P2P_PEER_MAX + 1)
+#define P2P_REMOTE_EXACT_ROUTE_MAX \
+    (P2P_REMOTE_NODE_MAX * P2P_REMOTE_SUBS_PER_NODE)
+#define P2P_EXACT_ROUTE_USED    1
+#define P2P_EXACT_ROUTE_DELETED 2
+
 typedef struct {
     char filter[MQTT_TOPIC_MAX];
     uint8_t qos;
@@ -28,7 +34,15 @@ typedef struct {
     remote_sub_t subs[P2P_REMOTE_SUBS_PER_NODE];
 } remote_node_t;
 
+typedef struct {
+    uint8_t owner_id[P2P_NODE_ID_LEN];
+    uint8_t next_hop_id[P2P_NODE_ID_LEN];
+    char filter[MQTT_TOPIC_MAX];
+    uint8_t in_use;
+} exact_route_t;
+
 static remote_node_t remote_nodes[P2P_PEER_MAX + 1];
+static exact_route_t exact_routes[P2P_REMOTE_EXACT_ROUTE_MAX];
 PLAT_MUTEX_DEFINE(router_lock);
 
 static int id_equal(const uint8_t *a, const uint8_t *b)
@@ -45,6 +59,84 @@ static int hop_in_list(uint8_t hops[][P2P_NODE_ID_LEN], int count,
         }
     }
     return 0;
+}
+
+static int filter_is_exact(const char *filter)
+{
+    return strchr(filter, '+') == NULL && strchr(filter, '#') == NULL;
+}
+
+static uint32_t hash_filter(const char *filter)
+{
+    uint32_t hash = 2166136261u;
+
+    while (*filter) {
+        hash ^= (uint8_t)*filter++;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static void exact_route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                      const uint8_t next_hop_id[P2P_NODE_ID_LEN],
+                                      const char *filter)
+{
+    uint32_t start;
+    exact_route_t *free_route = NULL;
+
+    if (!filter_is_exact(filter)) {
+        return;
+    }
+
+    start = hash_filter(filter) % P2P_REMOTE_EXACT_ROUTE_MAX;
+    for (int step = 0; step < P2P_REMOTE_EXACT_ROUTE_MAX; step++) {
+        exact_route_t *route = &exact_routes[(start + step) % P2P_REMOTE_EXACT_ROUTE_MAX];
+
+        if (route->in_use == P2P_EXACT_ROUTE_USED &&
+            id_equal(route->owner_id, owner_id) &&
+            strcmp(route->filter, filter) == 0) {
+            memcpy(route->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+            return;
+        }
+        if (route->in_use == 0) {
+            free_route = free_route ? free_route : route;
+            break;
+        }
+        if (route->in_use == P2P_EXACT_ROUTE_DELETED && !free_route) {
+            free_route = route;
+        }
+    }
+
+    if (free_route) {
+        memset(free_route, 0, sizeof(*free_route));
+        memcpy(free_route->owner_id, owner_id, P2P_NODE_ID_LEN);
+        memcpy(free_route->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+        strncpy(free_route->filter, filter, sizeof(free_route->filter) - 1);
+        free_route->in_use = P2P_EXACT_ROUTE_USED;
+    }
+}
+
+static void exact_route_remove_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                      const char *filter)
+{
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        if (exact_routes[i].in_use == P2P_EXACT_ROUTE_USED &&
+            id_equal(exact_routes[i].owner_id, owner_id) &&
+            strcmp(exact_routes[i].filter, filter) == 0) {
+            exact_routes[i].in_use = P2P_EXACT_ROUTE_DELETED;
+        }
+    }
+}
+
+static void exact_routes_remove_node_locked(const uint8_t node_id[P2P_NODE_ID_LEN])
+{
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        if (exact_routes[i].in_use == P2P_EXACT_ROUTE_USED &&
+            (id_equal(exact_routes[i].owner_id, node_id) ||
+             id_equal(exact_routes[i].next_hop_id, node_id))) {
+            exact_routes[i].in_use = P2P_EXACT_ROUTE_DELETED;
+        }
+    }
 }
 
 static remote_node_t *find_node_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
@@ -123,7 +215,10 @@ void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         return;
     }
 
-    memcpy(node->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+    if (id_equal(next_hop_id, owner_id) ||
+        !id_equal(node->next_hop_id, owner_id)) {
+        memcpy(node->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+    }
     for (int i = 0; i < P2P_REMOTE_SUBS_PER_NODE; i++) {
         if (node->subs[i].in_use &&
             strcmp(node->subs[i].filter, filter) == 0) {
@@ -138,6 +233,7 @@ void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         strncpy(node->subs[slot].filter, filter, sizeof(node->subs[slot].filter) - 1);
         node->subs[slot].qos = qos;
         node->subs[slot].in_use = 1;
+        exact_route_upsert_locked(owner_id, node->next_hop_id, filter);
     }
     plat_mutex_unlock(&router_lock);
 }
@@ -154,6 +250,7 @@ void p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
             if (node->subs[i].in_use &&
                 strcmp(node->subs[i].filter, filter) == 0) {
                 node->subs[i].in_use = 0;
+                exact_route_remove_locked(owner_id, filter);
             }
         }
         clear_node_if_empty_locked(node);
@@ -171,6 +268,7 @@ void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN])
             memset(&remote_nodes[i], 0, sizeof(remote_nodes[i]));
         }
     }
+    exact_routes_remove_node_locked(owner_id);
     plat_mutex_unlock(&router_lock);
 }
 
@@ -233,6 +331,33 @@ int p2p_router_find_next_hops(const char *topic,
     }
 
     plat_mutex_lock(&router_lock);
+    if (filter_is_exact(topic)) {
+        uint32_t start = hash_filter(topic) % P2P_REMOTE_EXACT_ROUTE_MAX;
+
+        for (int step = 0; step < P2P_REMOTE_EXACT_ROUTE_MAX && count < max; step++) {
+            exact_route_t *route = &exact_routes[(start + step) % P2P_REMOTE_EXACT_ROUTE_MAX];
+
+            if (route->in_use == 0) {
+                break;
+            }
+            if (route->in_use != P2P_EXACT_ROUTE_USED) {
+                continue;
+            }
+            if (strcmp(route->filter, topic) != 0) {
+                continue;
+            }
+            if (exclude_node_id && id_equal(route->next_hop_id, exclude_node_id)) {
+                continue;
+            }
+            if (!hop_in_list(out, count, route->next_hop_id)) {
+                memcpy(out[count], route->next_hop_id, P2P_NODE_ID_LEN);
+                count++;
+            }
+        }
+        plat_mutex_unlock(&router_lock);
+        return count;
+    }
+
     for (int i = 0; i <= P2P_PEER_MAX && count < max; i++) {
         if (!remote_nodes[i].in_use) {
             continue;

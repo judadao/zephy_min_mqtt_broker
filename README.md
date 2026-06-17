@@ -185,6 +185,10 @@ TOTAL_SUBS=200 BROKER_COUNTS="1 2 5 50" MESSAGES=50 STARTUP_SEC=1 SYNC_SETTLE_SE
 ```
 
 Set `MOSQUITTO_BENCH=0` to skip the mosquitto baseline.
+Set `DISTRIBUTED_PUBLISHERS=1 SCALE_MESSAGES_BY_BROKER=1` to run one
+publisher per broker and scale the total message count with the broker count.
+Set `STATIC_SEED_FANOUT=N` to connect each new broker to the previous `N`
+brokers during local static-seed tests.
 
 Recent local result:
 

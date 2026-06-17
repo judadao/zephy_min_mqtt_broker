@@ -48,7 +48,6 @@ static uint8_t seen_pos;
 static uint16_t local_seq;
 static int listen_fd = -1;
 PLAT_MUTEX_DEFINE(peer_lock);
-PLAT_MUTEX_DEFINE(peer_send_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -121,11 +120,9 @@ static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
         memcpy(frame + sizeof(hdr), payload, len);
     }
 
-    plat_mutex_lock(&peer_send_lock);
     if (send_all(fd, frame, sizeof(hdr) + len) < 0) {
         rc = -1;
     }
-    plat_mutex_unlock(&peer_send_lock);
     return rc;
 }
 
@@ -702,8 +699,10 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
 {
     uint8_t frame[P2P_PUBLISH_FRAME_MAX];
     uint8_t next_hops[P2P_PEER_MAX][P2P_NODE_ID_LEN];
+    int fds[P2P_PEER_MAX];
     uint16_t frame_len;
     int next_hop_count;
+    int fd_count = 0;
     int sent = 0;
 
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
@@ -711,9 +710,6 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     }
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
-    if (next_hop_count == 0) {
-        return;
-    }
 
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
@@ -728,12 +724,20 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                 break;
             }
         }
-        if (should_send) {
-            (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
-            sent++;
+        if (next_hop_count == 0 && conns[i].role == P2P_ROLE_ROUTER) {
+            should_send = 1;
+        }
+        if (should_send && fd_count < P2P_PEER_MAX) {
+            fds[fd_count++] = conns[i].fd;
         }
     }
     plat_mutex_unlock(&peer_lock);
+
+    for (int i = 0; i < fd_count; i++) {
+        if (send_frame(fds[i], P2P_PUBLISH, frame, frame_len) == 0) {
+            sent++;
+        }
+    }
 #ifdef P2P_BENCH_TRACE
     LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
 #endif
