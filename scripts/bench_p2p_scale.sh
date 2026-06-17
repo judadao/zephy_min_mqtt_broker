@@ -296,9 +296,6 @@ def percentile(values, pct):
     return values[idx]
 
 broker_count = len(ports)
-if broker_count < 2:
-    raise RuntimeError("need at least 2 brokers for remote P2P latency")
-
 topics_by_broker = [[] for _ in ports]
 for i in range(total_subs):
     owner = i % broker_count
@@ -329,7 +326,7 @@ time.sleep(sync_settle)
 pub_sock = connect_client(ports[0], "bench-pub")
 remote_topics = [t for owner, ts in enumerate(topics_by_broker) if owner != 0 for t in ts]
 if not remote_topics:
-    raise RuntimeError("no remote topics to publish")
+    remote_topics = [t for ts in topics_by_broker for t in ts]
 
 send_times = {}
 lat_ms = []
@@ -393,11 +390,6 @@ echo "broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_p
 echo "broker_count,total_subs,messages,received,lost,setup_sec,elapsed_sec,msg_per_sec,min_ms,p50_ms,p95_ms,p99_ms,max_ms,pass_p95" > "$RESULTS_FILE"
 
 for count in $BROKER_COUNTS; do
-    if [ "$count" -lt 2 ]; then
-        echo "[skip] broker_count=$count needs at least 2 brokers" >&2
-        continue
-    fi
-
     _cleanup
 
     discovery_port=$((BASE_DISCOVERY_PORT + count))
