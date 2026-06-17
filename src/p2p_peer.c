@@ -420,7 +420,8 @@ static void peer_loop(void *p1, void *p2, void *p3)
     while (recv_frame(c->fd, &type, buf, sizeof(buf), &len) == 0) {
         if (type == P2P_SUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
-            p2p_router_remote_subscribe(sub->owner_id, sub->filter, sub->qos);
+            p2p_router_remote_subscribe(sub->owner_id, sub->filter, sub->qos,
+                                        c->node_id);
             if (p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_SUB_NOTIFY, c->node_id);
             }
@@ -693,8 +694,7 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
             continue;
         }
-        if (conns[i].role == P2P_ROLE_ROUTER ||
-            p2p_router_topic_has_remote_match(conns[i].node_id, msg->topic)) {
+        if (p2p_router_next_hop_has_remote_match(conns[i].node_id, msg->topic)) {
             (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
             sent++;
         }

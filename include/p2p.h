@@ -103,12 +103,15 @@ void p2p_election_build_announce(p2p_announce_t *out);
 void p2p_election_self_id(uint8_t out[P2P_NODE_ID_LEN]);
 
 void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                 const char *filter, uint8_t qos);
+                                 const char *filter, uint8_t qos,
+                                 const uint8_t next_hop_id[P2P_NODE_ID_LEN]);
 void p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                    const char *filter);
 void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN]);
 int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
                                       const char *topic);
+int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
+                                         const char *topic);
 void p2p_router_publish(const p2p_publish_msg_t *msg,
                         const uint8_t *exclude_node_id);
 

@@ -23,6 +23,7 @@ typedef struct {
 
 typedef struct {
     uint8_t owner_id[P2P_NODE_ID_LEN];
+    uint8_t next_hop_id[P2P_NODE_ID_LEN];
     uint8_t in_use;
     remote_sub_t subs[P2P_REMOTE_SUBS_PER_NODE];
 } remote_node_t;
@@ -98,7 +99,8 @@ static int topic_match(const char *filter, const char *topic)
 }
 
 void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                 const char *filter, uint8_t qos)
+                                 const char *filter, uint8_t qos,
+                                 const uint8_t next_hop_id[P2P_NODE_ID_LEN])
 {
     remote_node_t *node;
     int slot = -1;
@@ -110,6 +112,7 @@ void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         return;
     }
 
+    memcpy(node->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
     for (int i = 0; i < P2P_REMOTE_SUBS_PER_NODE; i++) {
         if (node->subs[i].in_use &&
             strcmp(node->subs[i].filter, filter) == 0) {
@@ -152,9 +155,9 @@ void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN])
     plat_mutex_lock(&router_lock);
     for (int i = 0; i <= P2P_PEER_MAX; i++) {
         if (remote_nodes[i].in_use &&
-            id_equal(remote_nodes[i].owner_id, owner_id)) {
+            (id_equal(remote_nodes[i].owner_id, owner_id) ||
+             id_equal(remote_nodes[i].next_hop_id, owner_id))) {
             memset(&remote_nodes[i], 0, sizeof(remote_nodes[i]));
-            break;
         }
     }
     plat_mutex_unlock(&router_lock);
@@ -175,6 +178,32 @@ int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
                 match = 1;
                 break;
             }
+        }
+    }
+    plat_mutex_unlock(&router_lock);
+    return match;
+}
+
+int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
+                                         const char *topic)
+{
+    int match = 0;
+
+    plat_mutex_lock(&router_lock);
+    for (int i = 0; i <= P2P_PEER_MAX; i++) {
+        if (!remote_nodes[i].in_use ||
+            !id_equal(remote_nodes[i].next_hop_id, next_hop_id)) {
+            continue;
+        }
+        for (int j = 0; j < P2P_REMOTE_SUBS_PER_NODE; j++) {
+            if (remote_nodes[i].subs[j].in_use &&
+                topic_match(remote_nodes[i].subs[j].filter, topic)) {
+                match = 1;
+                break;
+            }
+        }
+        if (match) {
+            break;
         }
     }
     plat_mutex_unlock(&router_lock);
