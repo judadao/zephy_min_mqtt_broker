@@ -172,6 +172,16 @@ static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
     return rc;
 }
 
+static int send_frame_locked(int fd, uint8_t type, const void *payload, uint16_t len)
+{
+    int rc;
+
+    plat_mutex_lock(&send_lock);
+    rc = send_frame(fd, type, payload, len);
+    plat_mutex_unlock(&send_lock);
+    return rc;
+}
+
 static void configure_peer_socket(int fd)
 {
 #ifndef __ZEPHYR__
@@ -271,7 +281,7 @@ static int send_hello(int fd)
     p2p_announce_t ann;
 
     p2p_election_build_announce(&ann);
-    return send_frame(fd, P2P_HELLO, &ann, sizeof(ann));
+    return send_frame_locked(fd, P2P_HELLO, &ann, sizeof(ann));
 }
 
 static void send_current_hello_to_peers(void)
@@ -282,7 +292,7 @@ static void send_current_hello_to_peers(void)
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
         if (conns[i].connected) {
-            (void)send_frame(conns[i].fd, P2P_HELLO, &ann, sizeof(ann));
+            (void)send_frame_locked(conns[i].fd, P2P_HELLO, &ann, sizeof(ann));
         }
     }
     plat_mutex_unlock(&peer_lock);
@@ -444,7 +454,7 @@ static void advertise_local_subs_to(p2p_conn_t *c)
             memcpy(msg.owner_id, self_id, P2P_NODE_ID_LEN);
             strncpy(msg.filter, subs[i].filter, sizeof(msg.filter) - 1);
             msg.qos = subs[i].qos;
-            (void)send_frame(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
+            (void)send_frame_locked(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
         }
     }
 }
@@ -623,7 +633,7 @@ static void connect_loop(void *p1, void *p2, void *p3)
 #ifndef __ZEPHYR__
         const char *seeds = getenv("MQTT_P2P_PEERS");
         if (seeds && seeds[0]) {
-            char tmp[160];
+            char tmp[2048];
             strncpy(tmp, seeds, sizeof(tmp) - 1);
             tmp[sizeof(tmp) - 1] = '\0';
             char *saveptr = NULL;
@@ -726,7 +736,7 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
             continue;
         }
-        (void)send_frame(conns[i].fd, type, msg, sizeof(*msg));
+        (void)send_frame_locked(conns[i].fd, type, msg, sizeof(*msg));
     }
     plat_mutex_unlock(&peer_lock);
 }
