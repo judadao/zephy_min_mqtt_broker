@@ -14,6 +14,7 @@
 #   TARGET_P95_MS=10 ./scripts/bench_p2p_scale.sh
 #   STRICT_ESP32=1 ./scripts/bench_p2p_scale.sh
 #   MOSQUITTO_BENCH=0 ./scripts/bench_p2p_scale.sh
+#   SENSOR_CLIENTS=1000 TOPIC_COUNTS="100 200" MESSAGE_COUNTS="50000" ./scripts/bench_p2p_scale.sh
 #
 # STRICT_ESP32=1 keeps MQTT_MAX_CLIENTS=8 and uses exactly P2P_PEER_MAX_BENCH
 # instead of auto-raising it to the tested broker count. Use
@@ -26,6 +27,12 @@
 # MOSQUITTO_BENCH=1 runs a single local mosquitto instance with the same load
 # before the mqtt_min_broker rounds, so the output can compare both
 # implementations in one results.csv.
+#
+# SENSOR_CLIENTS models logical sensors. For single-host tests the script
+# multiplexes them through SENSOR_CONNECTIONS MQTT connections, capped to 128
+# by default, so large sensor-count scenarios do not mostly measure local
+# thread scheduling. Set SENSOR_CONNECTIONS=$SENSOR_CLIENTS when deliberately
+# testing one TCP client per sensor.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,6 +60,11 @@ MOSQUITTO_BIN="${MOSQUITTO_BIN:-mosquitto}"
 DISTRIBUTED_PUBLISHERS="${DISTRIBUTED_PUBLISHERS:-0}"
 SCALE_MESSAGES_BY_BROKER="${SCALE_MESSAGES_BY_BROKER:-0}"
 STATIC_SEED_FANOUT="${STATIC_SEED_FANOUT:-1}"
+SENSOR_CLIENTS="${SENSOR_CLIENTS:-0}"
+SENSOR_CONNECTIONS="${SENSOR_CONNECTIONS:-0}"
+SENSOR_WORKERS="${SENSOR_WORKERS:-64}"
+BENCH_KEEPALIVE="${BENCH_KEEPALIVE:-600}"
+BENCH_DRAIN_TIMEOUT_SEC="${BENCH_DRAIN_TIMEOUT_SEC:-60}"
 
 PASS_COUNT=""
 PIDS=""
@@ -190,9 +202,10 @@ EOF
 }
 
 _dump_count_logs() {
-    local count="$1"
+    local scenario="$1"
+    local count="$2"
 
-    for log in "$OUT"/broker_"$count"_*.log; do
+    for log in "$OUT"/broker_"$scenario"_"$count"_*.log; do
         [ -f "$log" ] || continue
         echo "--- ${log##*/} ---" >&2
         tail -n 40 "$log" >&2
@@ -236,7 +249,9 @@ _run_python_load() {
     local sync_settle="$5"
 
     python3 - "$ports_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
-        "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" <<'PY'
+        "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" "$SENSOR_CLIENTS" \
+        "$SENSOR_CONNECTIONS" "$SENSOR_WORKERS" "$BENCH_KEEPALIVE" \
+        "$BENCH_DRAIN_TIMEOUT_SEC" <<'PY'
 import socket
 import statistics
 import sys
@@ -250,9 +265,14 @@ target_ms = float(sys.argv[4])
 sync_settle = float(sys.argv[5])
 distributed_publishers = int(sys.argv[6]) != 0
 scale_messages_by_broker = int(sys.argv[7]) != 0
+sensor_clients = int(sys.argv[8])
+sensor_connections = int(sys.argv[9])
+sensor_workers = int(sys.argv[10])
+bench_keepalive = int(sys.argv[11])
+drain_timeout_sec = float(sys.argv[12])
 
 HOST = "127.0.0.1"
-KEEPALIVE = 60
+KEEPALIVE = bench_keepalive
 
 MQTT_CONNECT = 0x10
 MQTT_CONNACK = 0x20
@@ -381,14 +401,27 @@ setup_sec = time.monotonic() - setup_start
 time.sleep(sync_settle)
 
 pub_socks = []
-pub_count = broker_count if distributed_publishers else 1
-for i in range(pub_count):
-    pub_socks.append(connect_client(ports[i], f"bench-pub-{i}"))
+pub_ports = []
+if sensor_clients > 0:
+    if sensor_connections <= 0:
+        sensor_connections = min(sensor_clients, 128)
+    sensor_connections = max(1, min(sensor_connections, sensor_clients))
+    pub_count = sensor_connections
+    for i in range(pub_count):
+        port_idx = i % broker_count
+        pub_socks.append(connect_client(ports[port_idx], f"bench-sensor-conn-{i}"))
+        pub_ports.append(port_idx)
+else:
+    pub_count = broker_count if distributed_publishers else 1
+    for i in range(pub_count):
+        pub_socks.append(connect_client(ports[i], f"bench-pub-{i}"))
+        pub_ports.append(i)
 
 remote_topics_by_pub = []
 for pub_idx in range(pub_count):
+    port_idx = pub_ports[pub_idx]
     remote = [t for owner, ts in enumerate(topics_by_broker)
-              if owner != pub_idx for t in ts]
+              if owner != port_idx for t in ts]
     if not remote:
         remote = [t for ts in topics_by_broker for t in ts]
     remote_topics_by_pub.append(remote)
@@ -397,7 +430,7 @@ base_messages = messages
 if scale_messages_by_broker:
     messages = base_messages * broker_count
 
-send_times = {}
+send_times = [0] * messages
 lat_ms = []
 recv_count = [0]
 recv_errors = []
@@ -419,17 +452,23 @@ def receiver_worker(sock):
             continue
         _, payload = parse_publish(body)
         try:
-            seq_s, sent_ns_s = payload.decode().split(",", 1)
+            fields = payload.decode().split(",", 2)
+            seq_s, sent_ns_s = fields[0], fields[1]
             seq = int(seq_s)
-            sent_ns = int(sent_ns_s)
+            int(sent_ns_s)
         except Exception:
             continue
-        with recv_lock:
-            if seq in send_times:
-                lat_ms.append((time.time_ns() - sent_ns) / 1_000_000.0)
-                recv_count[0] += 1
-                del send_times[seq]
-                if recv_count[0] >= messages:
+        if 0 <= seq < messages:
+            sent_at = send_times[seq]
+            if sent_at:
+                send_times[seq] = 0
+                latency = (time.time_ns() - sent_at) / 1_000_000.0
+                done = False
+                with recv_lock:
+                    lat_ms.append(latency)
+                    recv_count[0] += 1
+                    done = recv_count[0] >= messages
+                if done:
                     stop_receivers.set()
 
 recv_threads = [threading.Thread(target=receiver_worker, args=(sock,))
@@ -438,7 +477,44 @@ for thread in recv_threads:
     thread.start()
 
 send_start = time.monotonic()
-if distributed_publishers and pub_count > 1:
+if sensor_clients > 0 and pub_count > 1:
+    worker_count = max(1, min(sensor_workers, pub_count))
+    start_event = threading.Event()
+    errors = []
+
+    def sensor_worker(worker_idx):
+        try:
+            start_event.wait()
+            for conn_idx in range(worker_idx, pub_count, worker_count):
+                topics = remote_topics_by_pub[conn_idx]
+                for seq in range(conn_idx, messages, pub_count):
+                    sensor_id = seq % sensor_clients
+                    now_ns = time.time_ns()
+                    payload = f"{seq},{now_ns},{sensor_id}".encode()
+                    send_times[seq] = now_ns
+                    topic = topics[(sensor_id + seq // sensor_clients) % len(topics)]
+                    publish_qos0(pub_socks[conn_idx], topic, payload)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=sensor_worker, args=(i,))
+               for i in range(worker_count)]
+    for thread in threads:
+        thread.start()
+    start_event.set()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
+
+    for sock in pub_socks:
+        try:
+            send_all(sock, bytes([MQTT_DISCONNECT, 0]))
+            sock.close()
+        except OSError:
+            pass
+    pub_socks = []
+elif distributed_publishers and pub_count > 1:
     start_event = threading.Event()
     errors = []
 
@@ -449,8 +525,7 @@ if distributed_publishers and pub_count > 1:
             for seq in range(pub_idx, messages, pub_count):
                 now_ns = time.time_ns()
                 payload = f"{seq},{now_ns}".encode()
-                with recv_lock:
-                    send_times[seq] = now_ns
+                send_times[seq] = now_ns
                 topic = topics[(seq // pub_count) % len(topics)]
                 publish_qos0(pub_socks[pub_idx], topic, payload)
         except Exception as exc:
@@ -472,11 +547,10 @@ else:
         topic = topics[(seq // pub_count) % len(topics)]
         now_ns = time.time_ns()
         payload = f"{seq},{now_ns}".encode()
-        with recv_lock:
-            send_times[seq] = now_ns
+        send_times[seq] = now_ns
         publish_qos0(pub_socks[pub_idx], topic, payload)
 
-deadline = time.monotonic() + max(5.0, messages * 0.05)
+deadline = time.monotonic() + max(1.0, drain_timeout_sec)
 while time.monotonic() < deadline:
     with recv_lock:
         if recv_count[0] >= messages:
@@ -621,13 +695,13 @@ for bench_topics in $TOPIC_COUNTS; do
             for pid in $PIDS; do
                 if ! kill -0 "$pid" 2>/dev/null; then
                     echo "[fail] broker_count=$count broker exited during startup" >&2
-                    _dump_count_logs "$count"
+                    _dump_count_logs "$scenario" "$count"
                     exit 1
                 fi
             done
             if ! missing="$(_wait_for_mqtt_ports "$ports_csv")"; then
                 echo "[fail] broker_count=$count MQTT ports not ready: $missing" >&2
-                _dump_count_logs "$count"
+                _dump_count_logs "$scenario" "$count"
                 exit 1
             fi
 

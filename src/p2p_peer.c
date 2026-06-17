@@ -115,31 +115,6 @@ static void send_slot_clear(int slot)
     plat_mutex_unlock(&send_lock);
 }
 
-static int collect_send_fds(const uint8_t next_hops[][P2P_NODE_ID_LEN],
-                            int next_hop_count, int *fds, int max)
-{
-    int count = 0;
-
-    if (next_hop_count <= 0 || max <= 0) {
-        return 0;
-    }
-
-    plat_mutex_lock(&send_lock);
-    for (int i = 0; i < next_hop_count && count < max; i++) {
-        for (int j = 0; j < P2P_PEER_MAX; j++) {
-            if (!send_slots[j].connected) {
-                continue;
-            }
-            if (id_equal(send_slots[j].node_id, next_hops[i])) {
-                fds[count++] = send_slots[j].fd;
-                break;
-            }
-        }
-    }
-    plat_mutex_unlock(&send_lock);
-    return count;
-}
-
 static int id_cmp(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, P2P_NODE_ID_LEN);
@@ -780,10 +755,8 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
 {
     uint8_t frame[P2P_PUBLISH_FRAME_MAX];
     uint8_t next_hops[P2P_PEER_MAX][P2P_NODE_ID_LEN];
-    int fds[P2P_PEER_MAX];
     uint16_t frame_len;
     int next_hop_count;
-    int fd_count = 0;
     int sent = 0;
 
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
@@ -793,13 +766,22 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
 
-    fd_count = collect_send_fds(next_hops, next_hop_count, fds, P2P_PEER_MAX);
-
-    for (int i = 0; i < fd_count; i++) {
-        if (send_frame(fds[i], P2P_PUBLISH, frame, frame_len) == 0) {
-            sent++;
+    plat_mutex_lock(&send_lock);
+    for (int i = 0; i < next_hop_count; i++) {
+        for (int j = 0; j < P2P_PEER_MAX; j++) {
+            if (!send_slots[j].connected) {
+                continue;
+            }
+            if (!id_equal(send_slots[j].node_id, next_hops[i])) {
+                continue;
+            }
+            if (send_frame(send_slots[j].fd, P2P_PUBLISH, frame, frame_len) == 0) {
+                sent++;
+            }
+            break;
         }
     }
+    plat_mutex_unlock(&send_lock);
 #ifdef P2P_BENCH_TRACE
     LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
 #endif
