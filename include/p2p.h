@@ -18,6 +18,9 @@
 #define P2P_PEER_MAX          10
 #endif
 #endif
+/* TODO(A): P2P_ROUTER_COUNT=2 is a static bottleneck; at N nodes all traffic
+ * funnels through 2 routers and throughput drops. Derive dynamically, e.g.
+ * max(2, floor(sqrt(active_peer_count))), and re-elect when N changes. */
 #ifndef P2P_ROUTER_COUNT
 #define P2P_ROUTER_COUNT      2
 #endif
@@ -102,11 +105,11 @@ int p2p_election_snapshot(p2p_peer_score_t *out, int max);
 void p2p_election_build_announce(p2p_announce_t *out);
 void p2p_election_self_id(uint8_t out[P2P_NODE_ID_LEN]);
 
-void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                 const char *filter, uint8_t qos,
-                                 const uint8_t next_hop_id[P2P_NODE_ID_LEN]);
-void p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                   const char *filter);
+int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                const char *filter, uint8_t qos,
+                                const uint8_t next_hop_id[P2P_NODE_ID_LEN]);
+int p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                  const char *filter);
 void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN]);
 int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
                                       const char *topic);

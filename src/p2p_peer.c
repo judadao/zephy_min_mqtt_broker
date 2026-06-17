@@ -48,6 +48,7 @@ static uint8_t seen_pos;
 static uint16_t local_seq;
 static int listen_fd = -1;
 PLAT_MUTEX_DEFINE(peer_lock);
+PLAT_MUTEX_DEFINE(seen_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -244,18 +245,18 @@ static void send_current_hello_to_peers(void)
 
 static int seen_before(const p2p_publish_msg_t *msg)
 {
-    plat_mutex_lock(&peer_lock);
+    plat_mutex_lock(&seen_lock);
     for (int i = 0; i < P2P_SEEN_MAX; i++) {
         if (seen[i].seq == msg->seq &&
             id_equal(seen[i].origin_id, msg->origin_id)) {
-            plat_mutex_unlock(&peer_lock);
+            plat_mutex_unlock(&seen_lock);
             return 1;
         }
     }
     memcpy(seen[seen_pos].origin_id, msg->origin_id, P2P_NODE_ID_LEN);
     seen[seen_pos].seq = msg->seq;
     seen_pos = (uint8_t)((seen_pos + 1) % P2P_SEEN_MAX);
-    plat_mutex_unlock(&peer_lock);
+    plat_mutex_unlock(&seen_lock);
     return 0;
 }
 
@@ -380,20 +381,23 @@ static void advertise_local_subs_to(p2p_conn_t *c)
 {
     sub_snapshot_t subs[8];
     uint8_t self_id[P2P_NODE_ID_LEN];
-    int n;
+    int cursor = 0;
 
     if (c->role != P2P_ROLE_ROUTER) {
         return;
     }
 
     p2p_election_self_id(self_id);
-    n = topic_get_sub_snapshots(subs, 8);
-    for (int i = 0; i < n; i++) {
-        p2p_sub_msg_t msg = {0};
-        memcpy(msg.owner_id, self_id, P2P_NODE_ID_LEN);
-        strncpy(msg.filter, subs[i].filter, sizeof(msg.filter) - 1);
-        msg.qos = subs[i].qos;
-        (void)send_frame(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
+    while (cursor < TOPIC_MAX_SUBS) {
+        int n = topic_get_sub_snapshots_from(subs, 8, &cursor);
+
+        for (int i = 0; i < n; i++) {
+            p2p_sub_msg_t msg = {0};
+            memcpy(msg.owner_id, self_id, P2P_NODE_ID_LEN);
+            strncpy(msg.filter, subs[i].filter, sizeof(msg.filter) - 1);
+            msg.qos = subs[i].qos;
+            (void)send_frame(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
+        }
     }
 }
 
@@ -437,15 +441,15 @@ static void peer_loop(void *p1, void *p2, void *p3)
     while (recv_frame(c->fd, &type, buf, sizeof(buf), &len) == 0) {
         if (type == P2P_SUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
-            p2p_router_remote_subscribe(sub->owner_id, sub->filter, sub->qos,
-                                        c->node_id);
-            if (p2p_election_role() == P2P_ROLE_ROUTER) {
+            int changed = p2p_router_remote_subscribe(sub->owner_id, sub->filter,
+                                                      sub->qos, c->node_id);
+            if (changed && p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_SUB_NOTIFY, c->node_id);
             }
         } else if (type == P2P_UNSUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
-            p2p_router_remote_unsubscribe(sub->owner_id, sub->filter);
-            if (p2p_election_role() == P2P_ROLE_ROUTER) {
+            int changed = p2p_router_remote_unsubscribe(sub->owner_id, sub->filter);
+            if (changed && p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_UNSUB_NOTIFY, c->node_id);
             }
         } else if (type == P2P_PUBLISH) {
@@ -711,6 +715,9 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
 
+    /* TODO(F): peer_lock is held only to scan conns[] and collect fds; keep a
+     * pre-built router_fds[] array maintained on connect/disconnect so the
+     * publish hot path needs no lock and no scan here. */
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
         int should_send = 0;
@@ -723,9 +730,6 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                 should_send = 1;
                 break;
             }
-        }
-        if (next_hop_count == 0 && conns[i].role == P2P_ROLE_ROUTER) {
-            should_send = 1;
         }
         if (should_send && fd_count < P2P_PEER_MAX) {
             fds[fd_count++] = conns[i].fd;

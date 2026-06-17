@@ -26,6 +26,7 @@ typedef struct {
 } retain_snapshot_t;
 
 int topic_get_sub_snapshots(sub_snapshot_t *out, int max);
+int topic_get_sub_snapshots_from(sub_snapshot_t *out, int max, int *cursor);
 int topic_get_retain_snapshots(retain_snapshot_t *out, int max);
 
 void topic_init(void);

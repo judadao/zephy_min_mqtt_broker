@@ -41,6 +41,10 @@ static int32_t local_score(void)
         }
     }
 
+    /* TODO(E): active_peers approximates load but ignores publish throughput;
+     * a heavily-loaded router retains its role until it loses client slots.
+     * Subtract a publish-rate moving average (publishes/s) so hot routers shed
+     * the ROUTER role before they become the bottleneck. */
     return (free_slots * 10) + uptime_bonus - (active_peers * 5);
 }
 

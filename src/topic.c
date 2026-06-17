@@ -52,15 +52,30 @@ static int filter_stats_locked(const char *filter, uint8_t *max_qos)
 
 int topic_get_sub_snapshots(sub_snapshot_t *out, int max)
 {
+    int cursor = 0;
+
+    return topic_get_sub_snapshots_from(out, max, &cursor);
+}
+
+int topic_get_sub_snapshots_from(sub_snapshot_t *out, int max, int *cursor)
+{
     plat_mutex_lock(&topic_lock);
+    int start = cursor ? *cursor : 0;
     int n = 0;
-    for (int i = 0; i < TOPIC_MAX_SUBS && n < max; i++) {
+    for (int i = start; i < TOPIC_MAX_SUBS && n < max; i++) {
         if (subs[i].in_use) {
+            memset(&out[n], 0, sizeof(out[n]));
             strncpy(out[n].filter,    subs[i].filter,             MQTT_TOPIC_MAX - 1);
             strncpy(out[n].client_id, subs[i].client->client_id,  MQTT_CLIENT_ID_MAX - 1);
             out[n].qos = subs[i].qos;
             n++;
         }
+        if (cursor) {
+            *cursor = i + 1;
+        }
+    }
+    if (cursor && *cursor > TOPIC_MAX_SUBS) {
+        *cursor = TOPIC_MAX_SUBS;
     }
     plat_mutex_unlock(&topic_lock);
     return n;

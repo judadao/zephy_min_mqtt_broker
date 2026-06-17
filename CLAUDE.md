@@ -35,8 +35,30 @@ BOARD=esp32s3 ./docker-build.sh
 ## Tests
 
 ```bash
-./scripts/test_broker.sh        # normal single-node MQTT smoke suite
-./scripts/test_p2p_dynamic.sh   # two local P2P brokers and cross-node publish
+./scripts/run_all_tests.sh          # run every suite; pass --all to include slow tests
+./scripts/run_all_tests.sh --all    # includes dashboard and keepalive timing tests
+```
+
+Individual suites:
+
+```bash
+./scripts/test_broker.sh            # basic MQTT smoke suite (pub/sub, QoS 0/1/2, retain)
+./scripts/test_auth.sh              # username/password auth (CONNACK 0x04 on bad creds)
+./scripts/test_keepalive.sh         # keepalive enforcement (1.5× rule, §3.1.2.10)
+./scripts/test_lwt.sh               # Last Will and Testament delivery
+./scripts/test_qos2.sh              # QoS 2 PUBLISH→PUBREC→PUBREL→PUBCOMP exchange
+./scripts/test_session.sh           # persistent session offline delivery (QoS 1)
+./scripts/test_session_qos2.sh      # persistent session offline delivery (QoS 2)
+./scripts/test_inflight_retry.sh    # QoS 1 DUP retransmit on reconnect
+./scripts/test_connect_edge.sh      # CONNECT edge cases: client-ID takeover, PINGREQ
+./scripts/test_malformed.sh         # malformed/truncated packets — broker must not crash
+./scripts/test_large_payload.sh     # near-max payload delivery and boundary checks
+./scripts/test_unsub.sh             # UNSUBSCRIBE stops delivery, others unaffected
+./scripts/test_stress.sh            # concurrent clients and pool exhaustion
+./scripts/test_connack_unavail.sh   # CONNACK 0x03 when client pool is full (§3.2.2.3)
+./scripts/test_dashboard.sh         # HTTP dashboard REST API (requires DASHBOARD=1 build)
+./scripts/test_p2p_dynamic.sh       # two local P2P brokers and cross-node publish
+./scripts/bench_p2p_scale.sh        # P2P scale benchmark: N brokers, throughput sweep
 ```
 
 The P2P test compiles two broker binaries with different MQTT/P2P ports and uses `MQTT_P2P_PEERS` as a deterministic local seed.

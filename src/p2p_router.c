@@ -66,6 +66,13 @@ static int filter_is_exact(const char *filter)
     return strchr(filter, '+') == NULL && strchr(filter, '#') == NULL;
 }
 
+static int id_is_zero(const uint8_t id[P2P_NODE_ID_LEN])
+{
+    static const uint8_t zero[P2P_NODE_ID_LEN];
+
+    return id_equal(id, zero);
+}
+
 static uint32_t hash_filter(const char *filter)
 {
     uint32_t hash = 2166136261u;
@@ -201,23 +208,27 @@ static int topic_match(const char *filter, const char *topic)
     return *f == '\0' && *t == '\0';
 }
 
-void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                 const char *filter, uint8_t qos,
-                                 const uint8_t next_hop_id[P2P_NODE_ID_LEN])
+int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                const char *filter, uint8_t qos,
+                                const uint8_t next_hop_id[P2P_NODE_ID_LEN])
 {
     remote_node_t *node;
     int slot = -1;
+    int changed = 0;
+    int route_changed = 0;
+    int next_is_direct = id_equal(next_hop_id, owner_id);
 
     plat_mutex_lock(&router_lock);
     node = find_node_locked(owner_id, 1);
     if (!node) {
         plat_mutex_unlock(&router_lock);
-        return;
+        return 0;
     }
 
-    if (id_equal(next_hop_id, owner_id) ||
-        !id_equal(node->next_hop_id, owner_id)) {
+    if (id_is_zero(node->next_hop_id) ||
+        (next_is_direct && !id_equal(node->next_hop_id, owner_id))) {
         memcpy(node->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
+        route_changed = 1;
     }
     for (int i = 0; i < P2P_REMOTE_SUBS_PER_NODE; i++) {
         if (node->subs[i].in_use &&
@@ -230,18 +241,24 @@ void p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         }
     }
     if (slot >= 0) {
+        changed = route_changed ||
+                  !node->subs[slot].in_use ||
+                  node->subs[slot].qos != qos ||
+                  strcmp(node->subs[slot].filter, filter) != 0;
         strncpy(node->subs[slot].filter, filter, sizeof(node->subs[slot].filter) - 1);
         node->subs[slot].qos = qos;
         node->subs[slot].in_use = 1;
         exact_route_upsert_locked(owner_id, node->next_hop_id, filter);
     }
     plat_mutex_unlock(&router_lock);
+    return changed;
 }
 
-void p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
-                                   const char *filter)
+int p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
+                                  const char *filter)
 {
     remote_node_t *node;
+    int changed = 0;
 
     plat_mutex_lock(&router_lock);
     node = find_node_locked(owner_id, 0);
@@ -251,11 +268,13 @@ void p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                 strcmp(node->subs[i].filter, filter) == 0) {
                 node->subs[i].in_use = 0;
                 exact_route_remove_locked(owner_id, filter);
+                changed = 1;
             }
         }
         clear_node_if_empty_locked(node);
     }
     plat_mutex_unlock(&router_lock);
+    return changed;
 }
 
 void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN])
@@ -358,6 +377,11 @@ int p2p_router_find_next_hops(const char *topic,
         return count;
     }
 
+    /* TODO(C): wildcard routing is O(P2P_PEER_MAX * P2P_REMOTE_SUBS_PER_NODE)
+     * under router_lock, serialising all concurrent publishes on a router.
+     * Partition the topic space by consistent hash across ROUTERs so each
+     * router owns a disjoint slice; wildcard lookups then hit only local state
+     * without contending the global lock. */
     for (int i = 0; i <= P2P_PEER_MAX && count < max; i++) {
         if (!remote_nodes[i].in_use) {
             continue;

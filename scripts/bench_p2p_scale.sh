@@ -237,7 +237,6 @@ _run_python_load() {
 
     python3 - "$ports_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
         "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" <<'PY'
-import select
 import socket
 import statistics
 import sys
@@ -400,7 +399,44 @@ if scale_messages_by_broker:
 
 send_times = {}
 lat_ms = []
-received = 0
+recv_count = [0]
+recv_errors = []
+recv_lock = threading.Lock()
+stop_receivers = threading.Event()
+
+def receiver_worker(sock):
+    sock.settimeout(0.1)
+    while not stop_receivers.is_set():
+        try:
+            typ, body = recv_pkt(sock)
+        except socket.timeout:
+            continue
+        except Exception as exc:
+            if not stop_receivers.is_set():
+                recv_errors.append(exc)
+            return
+        if (typ & 0xf0) != MQTT_PUBLISH:
+            continue
+        _, payload = parse_publish(body)
+        try:
+            seq_s, sent_ns_s = payload.decode().split(",", 1)
+            seq = int(seq_s)
+            sent_ns = int(sent_ns_s)
+        except Exception:
+            continue
+        with recv_lock:
+            if seq in send_times:
+                lat_ms.append((time.time_ns() - sent_ns) / 1_000_000.0)
+                recv_count[0] += 1
+                del send_times[seq]
+                if recv_count[0] >= messages:
+                    stop_receivers.set()
+
+recv_threads = [threading.Thread(target=receiver_worker, args=(sock,))
+                for sock in sub_socks]
+for thread in recv_threads:
+    thread.start()
+
 send_start = time.monotonic()
 if distributed_publishers and pub_count > 1:
     start_event = threading.Event()
@@ -413,7 +449,8 @@ if distributed_publishers and pub_count > 1:
             for seq in range(pub_idx, messages, pub_count):
                 now_ns = time.time_ns()
                 payload = f"{seq},{now_ns}".encode()
-                send_times[seq] = now_ns
+                with recv_lock:
+                    send_times[seq] = now_ns
                 topic = topics[(seq // pub_count) % len(topics)]
                 publish_qos0(pub_socks[pub_idx], topic, payload)
         except Exception as exc:
@@ -435,29 +472,25 @@ else:
         topic = topics[(seq // pub_count) % len(topics)]
         now_ns = time.time_ns()
         payload = f"{seq},{now_ns}".encode()
-        send_times[seq] = now_ns
+        with recv_lock:
+            send_times[seq] = now_ns
         publish_qos0(pub_socks[pub_idx], topic, payload)
 
 deadline = time.monotonic() + max(5.0, messages * 0.05)
-while received < messages and time.monotonic() < deadline:
-    ready, _, _ = select.select(sub_socks, [], [], 0.25)
-    for sock in ready:
-        typ, body = recv_pkt(sock)
-        if (typ & 0xf0) != MQTT_PUBLISH:
-            continue
-        _, payload = parse_publish(body)
-        try:
-            seq_s, sent_ns_s = payload.decode().split(",", 1)
-            seq = int(seq_s)
-            sent_ns = int(sent_ns_s)
-        except Exception:
-            continue
-        if seq in send_times:
-            lat_ms.append((time.time_ns() - sent_ns) / 1_000_000.0)
-            received += 1
-            del send_times[seq]
+while time.monotonic() < deadline:
+    with recv_lock:
+        if recv_count[0] >= messages:
+            break
+    if recv_errors:
+        raise recv_errors[0]
+    time.sleep(0.005)
 
 elapsed = time.monotonic() - send_start
+stop_receivers.set()
+for thread in recv_threads:
+    thread.join(timeout=1.0)
+
+received = recv_count[0]
 lost = messages - received
 throughput = received / elapsed if elapsed > 0 else 0.0
 
