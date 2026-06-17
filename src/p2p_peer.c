@@ -3,6 +3,7 @@
 #include <string.h>
 
 #ifndef __ZEPHYR__
+#include <netinet/tcp.h>
 #include <stdlib.h>
 #include <time.h>
 #endif
@@ -104,23 +105,42 @@ static int recv_all(int fd, void *buf, size_t len)
 
 static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
 {
+    uint8_t frame[sizeof(p2p_hdr_t) + P2P_PUBLISH_FRAME_MAX];
     p2p_hdr_t hdr = {
         .type = type,
         .len = htons(len),
     };
     int rc = 0;
 
+    if (sizeof(hdr) + len > sizeof(frame)) {
+        return -1;
+    }
+
+    memcpy(frame, &hdr, sizeof(hdr));
+    if (len > 0) {
+        memcpy(frame + sizeof(hdr), payload, len);
+    }
+
     plat_mutex_lock(&peer_send_lock);
-    if (send_all(fd, &hdr, sizeof(hdr)) < 0) {
-        rc = -1;
-        goto out;
-    }
-    if (len > 0 && send_all(fd, payload, len) < 0) {
+    if (send_all(fd, frame, sizeof(hdr) + len) < 0) {
         rc = -1;
     }
-out:
     plat_mutex_unlock(&peer_send_lock);
     return rc;
+}
+
+static void configure_peer_socket(int fd)
+{
+#ifndef __ZEPHYR__
+    int one = 1;
+
+    (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#ifdef TCP_QUICKACK
+    (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
+#endif
+#else
+    ARG_UNUSED(fd);
+#endif
 }
 
 static int recv_frame(int fd, uint8_t *type, uint8_t *payload, uint16_t cap, uint16_t *len)
@@ -487,6 +507,7 @@ static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
         plat_close(fd);
         return;
     }
+    configure_peer_socket(fd);
     c = alloc_conn(fd, peer_addr, p2p_port, 1);
     if (!c) {
         plat_close(fd);
@@ -523,6 +544,7 @@ static void accept_loop(void *p1, void *p2, void *p3)
         if (fd < 0) {
             continue;
         }
+        configure_peer_socket(fd);
         p2p_conn_t *c = alloc_conn(fd, src.sin_addr.s_addr, 0, 0);
         if (!c) {
             plat_close(fd);

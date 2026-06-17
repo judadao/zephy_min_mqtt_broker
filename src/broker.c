@@ -1,5 +1,8 @@
 #include "platform/platform.h"
 #include <errno.h>
+#ifndef __ZEPHYR__
+#include <netinet/tcp.h>
+#endif
 
 #include "broker.h"
 #include "client.h"
@@ -10,6 +13,20 @@
 LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
 static int listen_fd = -1;
+
+static void configure_client_socket(int fd)
+{
+#ifndef __ZEPHYR__
+    int one = 1;
+
+    (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#ifdef TCP_QUICKACK
+    (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
+#endif
+#else
+    ARG_UNUSED(fd);
+#endif
+}
 
 int broker_init(void)
 {
@@ -57,6 +74,7 @@ void broker_run(void)
             LOG_WRN("accept: %d", errno);
             continue;
         }
+        configure_client_socket(fd);
 
         LOG_INF("New TCP connection fd=%d", fd);
 

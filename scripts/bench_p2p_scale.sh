@@ -247,6 +247,7 @@ def utf8_field(s):
 
 def connect_client(port, client_id):
     sock = socket.create_connection((HOST, port), timeout=30)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     payload = utf8_field(client_id)
     vh = b"\x00\x04MQTT" + bytes([4, 2]) + KEEPALIVE.to_bytes(2, "big")
     pkt = bytes([MQTT_CONNECT]) + enc_rem(len(vh) + len(payload)) + vh + payload
