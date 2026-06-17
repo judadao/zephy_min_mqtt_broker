@@ -8,7 +8,9 @@
 /* forward declaration — include client.h in .c files */
 struct client;
 
+#ifndef TOPIC_MAX_SUBS
 #define TOPIC_MAX_SUBS   (MQTT_MAX_CLIENTS * 8)
+#endif
 #define TOPIC_RETAIN_MAX 8
 
 typedef struct {

@@ -13,9 +13,9 @@
 #endif
 #ifndef P2P_PEER_MAX
 #ifdef __ZEPHYR__
-#define P2P_PEER_MAX          2
+#define P2P_PEER_MAX          5
 #else
-#define P2P_PEER_MAX          6
+#define P2P_PEER_MAX          10
 #endif
 #endif
 #ifndef P2P_ROUTER_COUNT

@@ -1,4 +1,5 @@
 #include "platform/platform.h"
+#include <stddef.h>
 #include <string.h>
 
 #ifndef __ZEPHYR__
@@ -19,6 +20,7 @@ typedef struct {
     uint8_t role;
     uint32_t addr;
     uint16_t p2p_port;
+    uint8_t outbound;
     plat_thread_t thread;
 } p2p_conn_t;
 
@@ -27,12 +29,25 @@ typedef struct {
     uint16_t seq;
 } seen_msg_t;
 
+typedef struct {
+    uint8_t  origin_id[P2P_NODE_ID_LEN];
+    uint16_t seq;
+    uint16_t topic_len;
+    uint16_t payload_len;
+    uint8_t  qos;
+    uint8_t  retain;
+} __attribute__((packed)) p2p_publish_wire_hdr_t;
+
+#define P2P_PUBLISH_FRAME_MAX \
+    (sizeof(p2p_publish_wire_hdr_t) + MQTT_TOPIC_MAX + MQTT_PAYLOAD_MAX)
+
 static p2p_conn_t conns[P2P_PEER_MAX];
 static seen_msg_t seen[P2P_SEEN_MAX];
 static uint8_t seen_pos;
 static uint16_t local_seq;
 static int listen_fd = -1;
 PLAT_MUTEX_DEFINE(peer_lock);
+PLAT_MUTEX_DEFINE(peer_send_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -50,6 +65,13 @@ static void *peer_main(void *arg);
 static int id_equal(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, P2P_NODE_ID_LEN) == 0;
+}
+
+static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *except);
+
+static int id_cmp(const uint8_t *a, const uint8_t *b)
+{
+    return memcmp(a, b, P2P_NODE_ID_LEN);
 }
 
 static int send_all(int fd, const void *buf, size_t len)
@@ -86,14 +108,19 @@ static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
         .type = type,
         .len = htons(len),
     };
+    int rc = 0;
 
+    plat_mutex_lock(&peer_send_lock);
     if (send_all(fd, &hdr, sizeof(hdr)) < 0) {
-        return -1;
+        rc = -1;
+        goto out;
     }
     if (len > 0 && send_all(fd, payload, len) < 0) {
-        return -1;
+        rc = -1;
     }
-    return 0;
+out:
+    plat_mutex_unlock(&peer_send_lock);
+    return rc;
 }
 
 static int recv_frame(int fd, uint8_t *type, uint8_t *payload, uint16_t cap, uint16_t *len)
@@ -111,6 +138,68 @@ static int recv_frame(int fd, uint8_t *type, uint8_t *payload, uint16_t cap, uin
     if (*len > 0 && recv_all(fd, payload, *len) < 0) {
         return -1;
     }
+    return 0;
+}
+
+static int build_publish_frame(const p2p_publish_msg_t *msg,
+                               uint8_t *out, uint16_t out_cap,
+                               uint16_t *out_len)
+{
+    p2p_publish_wire_hdr_t hdr;
+    size_t topic_len = strlen(msg->topic);
+    size_t needed;
+
+    if (topic_len >= MQTT_TOPIC_MAX || msg->payload_len > MQTT_PAYLOAD_MAX) {
+        return -1;
+    }
+
+    needed = sizeof(hdr) + topic_len + msg->payload_len;
+    if (needed > out_cap || needed > UINT16_MAX) {
+        return -1;
+    }
+
+    memset(&hdr, 0, sizeof(hdr));
+    memcpy(hdr.origin_id, msg->origin_id, P2P_NODE_ID_LEN);
+    hdr.seq = msg->seq;
+    hdr.topic_len = (uint16_t)topic_len;
+    hdr.payload_len = msg->payload_len;
+    hdr.qos = msg->qos;
+    hdr.retain = msg->retain;
+
+    memcpy(out, &hdr, sizeof(hdr));
+    memcpy(out + sizeof(hdr), msg->topic, topic_len);
+    memcpy(out + sizeof(hdr) + topic_len, msg->payload, msg->payload_len);
+    *out_len = (uint16_t)needed;
+    return 0;
+}
+
+static int parse_publish_frame(const uint8_t *buf, uint16_t len,
+                               p2p_publish_msg_t *msg)
+{
+    p2p_publish_wire_hdr_t hdr;
+    size_t needed;
+
+    if (len < sizeof(hdr)) {
+        return -1;
+    }
+    memcpy(&hdr, buf, sizeof(hdr));
+    if (hdr.topic_len == 0 || hdr.topic_len >= MQTT_TOPIC_MAX ||
+        hdr.payload_len > MQTT_PAYLOAD_MAX) {
+        return -1;
+    }
+    needed = sizeof(hdr) + hdr.topic_len + hdr.payload_len;
+    if (needed != len) {
+        return -1;
+    }
+
+    memset(msg, 0, sizeof(*msg));
+    memcpy(msg->origin_id, hdr.origin_id, P2P_NODE_ID_LEN);
+    msg->seq = hdr.seq;
+    memcpy(msg->topic, buf + sizeof(hdr), hdr.topic_len);
+    msg->payload_len = hdr.payload_len;
+    msg->qos = hdr.qos;
+    msg->retain = hdr.retain;
+    memcpy(msg->payload, buf + sizeof(hdr) + hdr.topic_len, hdr.payload_len);
     return 0;
 }
 
@@ -153,7 +242,7 @@ static int seen_before(const p2p_publish_msg_t *msg)
     return 0;
 }
 
-static p2p_conn_t *alloc_conn(int fd, uint32_t addr, uint16_t p2p_port)
+static p2p_conn_t *alloc_conn(int fd, uint32_t addr, uint16_t p2p_port, uint8_t outbound)
 {
     p2p_conn_t *c = NULL;
 
@@ -165,6 +254,7 @@ static p2p_conn_t *alloc_conn(int fd, uint32_t addr, uint16_t p2p_port)
             c->fd = fd;
             c->addr = addr;
             c->p2p_port = p2p_port;
+            c->outbound = outbound;
             c->in_use = 1;
             break;
         }
@@ -190,7 +280,7 @@ static void close_conn(p2p_conn_t *c)
     c->fd = -1;
     plat_mutex_unlock(&peer_lock);
 
-    if (had_node) {
+    if (had_node && !conn_exists(node_id, NULL)) {
         p2p_router_remove_node(node_id);
     }
 }
@@ -209,6 +299,23 @@ static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *excep
     }
     plat_mutex_unlock(&peer_lock);
     return exists;
+}
+
+static void close_duplicate_conns(const uint8_t node_id[P2P_NODE_ID_LEN],
+                                  p2p_conn_t *except)
+{
+    plat_mutex_lock(&peer_lock);
+    for (int i = 0; i < P2P_PEER_MAX; i++) {
+        if (&conns[i] != except && conns[i].in_use && conns[i].connected &&
+            id_equal(conns[i].node_id, node_id)) {
+            if (conns[i].fd >= 0) {
+                plat_close(conns[i].fd);
+            }
+            memset(&conns[i], 0, sizeof(conns[i]));
+            conns[i].fd = -1;
+        }
+    }
+    plat_mutex_unlock(&peer_lock);
 }
 
 static int addr_conn_exists(uint32_t addr, uint16_t p2p_port)
@@ -242,6 +349,9 @@ static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
     pub.payload_len = msg->payload_len;
     pub.qos = msg->qos;
     pub.retain = msg->retain;
+#ifdef P2P_BENCH_TRACE
+    LOG_INF("P2P recv publish topic=%s from peer", pub.topic);
+#endif
     topic_publish_remote(&pub);
 
     if (p2p_election_role() == P2P_ROLE_ROUTER) {
@@ -273,7 +383,7 @@ static void advertise_local_subs_to(p2p_conn_t *c)
 static void peer_loop(void *p1, void *p2, void *p3)
 {
     p2p_conn_t *c = (p2p_conn_t *)p1;
-    uint8_t buf[sizeof(p2p_publish_msg_t)];
+    uint8_t buf[P2P_PUBLISH_FRAME_MAX];
     uint8_t type;
     uint16_t len;
 
@@ -289,8 +399,16 @@ static void peer_loop(void *p1, void *p2, void *p3)
 
     p2p_announce_t *ann = (p2p_announce_t *)buf;
     if (conn_exists(ann->node_id, c)) {
-        close_conn(c);
-        return;
+        uint8_t self_id[P2P_NODE_ID_LEN];
+        int keep_new;
+
+        p2p_election_self_id(self_id);
+        keep_new = (id_cmp(self_id, ann->node_id) < 0) ? c->outbound : !c->outbound;
+        if (!keep_new) {
+            close_conn(c);
+            return;
+        }
+        close_duplicate_conns(ann->node_id, c);
     }
     memcpy(c->node_id, ann->node_id, P2P_NODE_ID_LEN);
     c->role = ann->role;
@@ -312,8 +430,11 @@ static void peer_loop(void *p1, void *p2, void *p3)
             if (p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_UNSUB_NOTIFY, c->node_id);
             }
-        } else if (type == P2P_PUBLISH && len == sizeof(p2p_publish_msg_t)) {
-            handle_publish(c, (p2p_publish_msg_t *)buf);
+        } else if (type == P2P_PUBLISH) {
+            p2p_publish_msg_t msg;
+            if (parse_publish_frame(buf, len, &msg) == 0) {
+                handle_publish(c, &msg);
+            }
         } else if (type == P2P_HELLO && len == sizeof(p2p_announce_t)) {
             ann = (p2p_announce_t *)buf;
             c->role = ann->role;
@@ -336,10 +457,12 @@ static void spawn_peer(p2p_conn_t *c)
 #endif
 }
 
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
 static int has_conn_to(const uint8_t node_id[P2P_NODE_ID_LEN])
 {
     return conn_exists(node_id, NULL);
 }
+#endif
 
 static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
 {
@@ -363,7 +486,7 @@ static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
         plat_close(fd);
         return;
     }
-    c = alloc_conn(fd, peer_addr, p2p_port);
+    c = alloc_conn(fd, peer_addr, p2p_port, 1);
     if (!c) {
         plat_close(fd);
         return;
@@ -371,6 +494,7 @@ static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
     spawn_peer(c);
 }
 
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
 static void connect_to_peer(const p2p_peer_score_t *peer)
 {
     uint8_t self_id[P2P_NODE_ID_LEN];
@@ -383,6 +507,7 @@ static void connect_to_peer(const p2p_peer_score_t *peer)
     }
     connect_to_addr(peer->addr, peer->p2p_port);
 }
+#endif
 
 static void accept_loop(void *p1, void *p2, void *p3)
 {
@@ -397,7 +522,7 @@ static void accept_loop(void *p1, void *p2, void *p3)
         if (fd < 0) {
             continue;
         }
-        p2p_conn_t *c = alloc_conn(fd, src.sin_addr.s_addr, 0);
+        p2p_conn_t *c = alloc_conn(fd, src.sin_addr.s_addr, 0, 0);
         if (!c) {
             plat_close(fd);
             continue;
@@ -413,11 +538,13 @@ static void connect_loop(void *p1, void *p2, void *p3)
     ARG_UNUSED(p3);
 
     while (1) {
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
         p2p_peer_score_t peers[P2P_PEER_MAX + 1];
         int n = p2p_election_snapshot(peers, P2P_PEER_MAX + 1);
         for (int i = 0; i < n; i++) {
             connect_to_peer(&peers[i]);
         }
+#endif
         send_current_hello_to_peers();
 #ifndef __ZEPHYR__
         const char *seeds = getenv("MQTT_P2P_PEERS");
@@ -550,6 +677,14 @@ void p2p_local_unsubscribe(const char *filter)
 void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                                   const uint8_t *exclude_node_id)
 {
+    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
+    uint16_t frame_len;
+    int sent = 0;
+
+    if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
+        return;
+    }
+
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
         if (!conns[i].connected) {
@@ -560,10 +695,14 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
         }
         if (conns[i].role == P2P_ROLE_ROUTER ||
             p2p_router_topic_has_remote_match(conns[i].node_id, msg->topic)) {
-            (void)send_frame(conns[i].fd, P2P_PUBLISH, msg, sizeof(*msg));
+            (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
+            sent++;
         }
     }
     plat_mutex_unlock(&peer_lock);
+#ifdef P2P_BENCH_TRACE
+    LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
+#endif
 }
 
 void p2p_publish_from_local(const mqtt_publish_t *pub)

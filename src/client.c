@@ -654,6 +654,9 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
     }
 
     LOG_DBG("client[%d] PUBLISH topic=%s qos=%d", c->slot, pub.topic, pub.qos);
+#ifdef P2P_BENCH_TRACE
+    LOG_INF("MQTT recv publish topic=%s qos=%d", pub.topic, pub.qos);
+#endif
 
     if (pub.qos == 2) {
         /* check for duplicate before delivering */

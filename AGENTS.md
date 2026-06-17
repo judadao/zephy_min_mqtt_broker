@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Personal Paths
+
+- Obsidian vault path: `/home/judd/moxa/md_file/moxa_md`
+
 ## Project Structure & Module Organization
 
 This repository contains a minimal MQTT v3.1.1 broker in C for Linux development and Zephyr/ESP32 deployment. Core broker logic lives in `src/` (`broker.c`, `client.c`, `packet.c`, `session.c`, `topic.c`), with public headers in `include/`. Platform-specific code is under `platform/posix/` and `platform/zephyr/`. The Linux CLI test client is `tools/mqtt_cli.c`. Zephyr module files are in `zephyr/`, with root `CMakeLists.txt`, `Kconfig`, and `prj.conf.template` supporting embedded builds. Generated outputs belong in `build_out/` and should not be committed.
