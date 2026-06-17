@@ -6,7 +6,8 @@
 #include "broker.h"
 
 #define SESSION_MAX       MQTT_MAX_CLIENTS
-#define SESSION_QUEUE_MAX 2   /* max queued QoS-1 msgs per offline session */
+/* Holds offline messages + QoS1 inflights saved on disconnect (CLIENT_INFLIGHT_MAX=4) */
+#define SESSION_QUEUE_MAX 8
 #define SESSION_SUB_MAX   4   /* max persisted subscriptions per session    */
 
 typedef struct {
@@ -15,6 +16,7 @@ typedef struct {
     uint16_t payload_len;
     uint8_t  qos;
     uint16_t packet_id;
+    uint8_t  dup;    /* 1 if retransmit (was inflight when client disconnected) */
     uint8_t  in_use;
 } session_msg_t;
 

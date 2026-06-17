@@ -18,11 +18,18 @@ static int      stub_inflight_count;
 static char     stub_last_topic[MQTT_TOPIC_MAX];
 static uint8_t  stub_last_payload[MQTT_PAYLOAD_MAX];
 static uint16_t stub_last_payload_len;
+static uint8_t  stub_last_buf[MQTT_MAX_PACKET_SIZE + 8];
+static size_t   stub_last_buf_len;
 
 int client_send(client_t *c, const uint8_t *buf, size_t len)
 {
     (void)c;
     stub_send_count++;
+    /* capture raw frame for DUP-bit inspection */
+    if (len <= sizeof(stub_last_buf)) {
+        memcpy(stub_last_buf, buf, len);
+        stub_last_buf_len = len;
+    }
     /* Parse the PUBLISH type_flags to extract the topic from the wire format */
     if (len >= 2 && (buf[0] & 0xF0) == MQTT_PUBLISH) {
         mqtt_packet_t pkt;
@@ -64,6 +71,8 @@ static void stub_reset(void)
     stub_last_topic[0]    = '\0';
     stub_last_payload[0]  = '\0';
     stub_last_payload_len = 0;
+    stub_last_buf_len     = 0;
+    memset(stub_last_buf, 0, sizeof(stub_last_buf));
 }
 
 /* ── tiny test harness ────────────────────────────────────────────────────── */
@@ -274,6 +283,46 @@ static void test_drain(void)
     CHECK("drain empty queue: no sends", stub_send_count == 0);
 }
 
+static void test_drain_dup(void)
+{
+    printf("\n--- session_drain: DUP flag propagation ---\n");
+    session_init();
+    stub_reset();
+
+    session_t *s = session_create("dup_c");
+
+    /* enqueue a message with dup=1 (simulating inflight save on disconnect) */
+    mqtt_publish_t pub = {0};
+    strncpy(pub.topic, "dr/dup", MQTT_TOPIC_MAX - 1);
+    pub.payload[0] = 'X'; pub.payload_len = 1;
+    pub.qos = 1;
+    pub.dup = 1;
+    session_enqueue(s, &pub, 99);
+
+    CHECK("dup enqueue stored",       s->queue[0].in_use == 1);
+    CHECK("dup flag stored in queue", s->queue[0].dup == 1);
+    CHECK("packet_id stored",         s->queue[0].packet_id == 99);
+
+    client_t fake_client;
+    memset(&fake_client, 0, sizeof(fake_client));
+    fake_client.fd = -1;
+    session_drain(s, &fake_client);
+
+    CHECK("dup drain: client_send called",    stub_send_count == 1);
+    /* verify DUP bit is set in the transmitted packet (bit 3 of byte 0) */
+    CHECK("dup drain: DUP bit set in frame",  (stub_last_buf[0] & 0x08) != 0);
+    CHECK("dup drain: queue cleared",         !s->queue[0].in_use);
+
+    /* enqueue with dup=0 — DUP bit must NOT be set */
+    stub_reset();
+    session_t *s2 = session_create("nodup_c");
+    pub.dup = 0;
+    pub.qos = 1;
+    session_enqueue(s2, &pub, 100);
+    session_drain(s2, &fake_client);
+    CHECK("no-dup drain: DUP bit clear in frame", (stub_last_buf[0] & 0x08) == 0);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -286,6 +335,7 @@ int main(void)
     test_enqueue();
     test_offline_publish();
     test_drain();
+    test_drain_dup();
 
     printf("\n=== Results: %d passed, %d failed ===\n", pass_count, fail_count);
     return (fail_count > 0) ? 1 : 0;

@@ -295,6 +295,21 @@ static void test_build_parse_publish_roundtrip(void)
     packet_parse_publish(&pkt, &dst);
     ASSERT_EQ(dst.retain, 1, "publish retain flag preserved");
 
+    /* DUP flag roundtrip */
+    src.qos = 1; src.packet_id = 1; src.retain = 0;
+    src.dup = 1;
+    wlen = packet_build_publish(&src, wire, sizeof(wire));
+    ASSERT(wlen > 0, "publish DUP=1 build succeeds");
+    ASSERT((wire[0] & 0x08) != 0, "publish DUP=1: bit 3 set in fixed header");
+    pkt.type_flags = wire[0];
+    packet_decode_remaining_len(wire + 1, (size_t)(wlen - 1), &rem, &rem_bytes);
+    pkt.buf_len = rem;
+    memcpy(pkt.buf, wire + 1 + rem_bytes, rem);
+    memset(&dst, 0, sizeof(dst));
+    ASSERT(packet_parse_publish(&pkt, &dst) == 0, "publish DUP=1 parse succeeds");
+    ASSERT_EQ(dst.dup, 1, "publish DUP=1 preserved through roundtrip");
+    src.dup = 0; /* reset for subsequent tests */
+
     /* buffer too small → error */
     ASSERT(packet_build_publish(&src, wire, 3) < 0, "publish small buffer returns error");
 

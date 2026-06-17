@@ -313,7 +313,7 @@ int packet_build_publish(const mqtt_publish_t *pub, uint8_t *out, size_t out_cap
     }
 
     size_t pos = 0;
-    out[pos++] = MQTT_PUBLISH | (pub->qos << 1) | pub->retain;
+    out[pos++] = MQTT_PUBLISH | ((pub->dup & 0x01) << 3) | (pub->qos << 1) | pub->retain;
     memcpy(out + pos, rem_enc, rem_bytes);
     pos += rem_bytes;
     pos  = write_str(out, pos, pub->topic, topic_len);

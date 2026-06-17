@@ -134,6 +134,30 @@ void client_free(client_t *c)
         if (s) {
             session_save_subs(s, (const char (*)[MQTT_TOPIC_MAX])filters,
                               qos, count);
+            /* MQTT §4.4: save unsatisfied QoS1 inflights for retransmit with DUP=1 */
+            for (int i = 0; i < CLIENT_INFLIGHT_MAX; i++) {
+                if (!c->inflight[i].in_use || c->inflight[i].qos != 1) {
+                    continue;
+                }
+                mqtt_packet_t repkt = {0};
+                repkt.type_flags = c->inflight[i].buf[0];
+                uint32_t rlen;
+                size_t   rbytes;
+                if (packet_decode_remaining_len(c->inflight[i].buf + 1,
+                        c->inflight[i].len - 1, &rlen, &rbytes) < 0) {
+                    continue;
+                }
+                repkt.buf_len = rlen;
+                memcpy(repkt.buf, c->inflight[i].buf + 1 + rbytes, rlen);
+                mqtt_publish_t pub = {0};
+                if (packet_parse_publish(&repkt, &pub) < 0) {
+                    continue;
+                }
+                pub.dup = 1;
+                session_enqueue(s, &pub, c->inflight[i].packet_id);
+                LOG_DBG("client[%d] saved inflight id=%u to session",
+                        c->slot, c->inflight[i].packet_id);
+            }
         }
     }
     topic_unsubscribe_all(c);

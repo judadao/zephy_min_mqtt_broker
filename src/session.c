@@ -84,6 +84,7 @@ int session_enqueue(session_t *s, const mqtt_publish_t *pub, uint16_t pkt_id)
             s->queue[i].payload_len = plen;
             s->queue[i].qos        = pub->qos;
             s->queue[i].packet_id  = pkt_id;
+            s->queue[i].dup        = pub->dup;
             s->queue[i].in_use     = 1;
             LOG_DBG("enqueued for %s: %s", s->client_id, pub->topic);
             return 0;
@@ -105,6 +106,7 @@ void session_drain(session_t *s, struct client *c)
         pub.payload_len = s->queue[i].payload_len;
         pub.qos         = s->queue[i].qos;
         pub.packet_id   = s->queue[i].packet_id;
+        pub.dup         = s->queue[i].dup; /* propagate DUP for inflight retransmits */
 
         uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
         int     len = packet_build_publish(&pub, buf, sizeof(buf));
