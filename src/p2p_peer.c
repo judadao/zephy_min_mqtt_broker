@@ -235,33 +235,35 @@ static int send_frame_to_slot(int slot, uint8_t type, const void *payload, uint1
     return rc;
 }
 
-static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                                  const uint8_t *frame,
-                                                  uint16_t frame_len)
+/* Find the send slot for node_id, lock send_locks[slot], drop send_meta_lock.
+ * Returns the slot index (>= 0) with send_locks[slot] held, or -1 if not found. */
+static int find_and_lock_send_slot(const uint8_t node_id[P2P_NODE_ID_LEN])
 {
     int slot = -1;
 
     plat_mutex_lock(&send_meta_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (!send_slots[i].connected) {
-            continue;
+        if (send_slots[i].connected && id_equal(send_slots[i].node_id, node_id)) {
+            slot = i;
+            break;
         }
-        if (!id_equal(send_slots[i].node_id, node_id)) {
-            continue;
-        }
-        slot = i;
-        break;
     }
     if (slot >= 0) {
         plat_mutex_lock(&send_locks[slot]);
     }
     plat_mutex_unlock(&send_meta_lock);
-    if (slot >= 0) {
-        int ok = (send_frame(send_slots[slot].fd, P2P_PUBLISH, frame, frame_len) == 0);
-        plat_mutex_unlock(&send_locks[slot]);
-        return ok;
-    }
-    return 0;
+    return slot;
+}
+
+static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
+                                                  const uint8_t *frame,
+                                                  uint16_t frame_len)
+{
+    int slot = find_and_lock_send_slot(node_id);
+    if (slot < 0) return 0;
+    int ok = (send_frame(send_slots[slot].fd, P2P_PUBLISH, frame, frame_len) == 0);
+    plat_mutex_unlock(&send_locks[slot]);
+    return ok;
 }
 
 static int send_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
@@ -327,31 +329,11 @@ static void flood_publish_to_connected_peers(const uint8_t *frame, uint16_t fram
 static int send_sub_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
                                      const p2p_sub_msg_t *msg, uint8_t type)
 {
-    int sent = 0;
-    int slot = -1;
-
-    plat_mutex_lock(&send_meta_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (!send_slots[i].connected) {
-            continue;
-        }
-        if (!id_equal(send_slots[i].node_id, node_id)) {
-            continue;
-        }
-        slot = i;
-        break;
-    }
-    if (slot >= 0) {
-        plat_mutex_lock(&send_locks[slot]);
-    }
-    plat_mutex_unlock(&send_meta_lock);
-    if (slot >= 0) {
-        if (send_frame(send_slots[slot].fd, type, msg, sizeof(*msg)) == 0) {
-            sent = 1;
-        }
-        plat_mutex_unlock(&send_locks[slot]);
-    }
-    return sent;
+    int slot = find_and_lock_send_slot(node_id);
+    if (slot < 0) return 0;
+    int ok = (send_frame(send_slots[slot].fd, type, msg, sizeof(*msg)) == 0);
+    plat_mutex_unlock(&send_locks[slot]);
+    return ok;
 }
 
 static void configure_peer_socket(int fd)
