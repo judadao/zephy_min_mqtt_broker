@@ -170,10 +170,6 @@ static void shard_key_from_str(const char *src, char out[MQTT_TOPIC_MAX])
         len--;
     }
     out[len] = '\0';
-
-    if (!cut && src[len] != '\0') {
-        /* keep the literal prefix we already captured */
-    }
 }
 
 void p2p_shard_key_from_topic(const char *topic, char out[MQTT_TOPIC_MAX])
