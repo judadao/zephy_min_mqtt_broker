@@ -388,8 +388,6 @@ if sensor_clients <= 0:
     sensor_clients = 1
 if sensor_connections <= 0:
     sensor_connections = min(sensor_clients, 128)
-if esp32_profile:
-    sensor_connections = min(sensor_connections, 2)
 sensor_connections = max(1, min(sensor_connections, sensor_clients))
 
 pub_socks = []

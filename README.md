@@ -210,6 +210,20 @@ ESP32_PROFILE=1 BROKER_COUNTS="10 50 100" SENSOR_CLIENTS=1000 \
     MESSAGE_COUNTS="10000" ./scripts/bench_p2p_docker_scale.sh
 ```
 
+For the exact scenario you asked for, use the dedicated wrapper:
+
+```bash
+./scripts/bench_esp32_workload.sh
+```
+
+It runs two phases:
+
+1. One broker under heavy client/topic/message load.
+2. An ESP32-like broker mesh at 5 and 10 nodes.
+
+You can tune the two phases independently with `SINGLE_BROKER_*` and
+`ESP32_*` environment variables.
+
 Recent local result:
 
 | Implementation | Brokers | Total subs | Messages | Throughput | p95 latency |
