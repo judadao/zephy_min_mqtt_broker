@@ -446,30 +446,32 @@ static int recv_exact(int fd, uint8_t *buf, size_t n)
 /* read one complete MQTT packet from wire into *out */
 static int recv_packet(client_t *c, mqtt_packet_t *out)
 {
-    uint8_t header[5];
+    uint8_t hdr[2];
 
-    if (recv_exact(c->fd, header, 1) < 0) {
+    /* Read fixed-header byte and first remaining-length byte together to
+     * save a syscall — for packets with single-byte remaining length
+     * (payload < 128 bytes) this covers the entire header in one read. */
+    if (recv_exact(c->fd, hdr, 2) < 0) {
         return -1;
     }
-    out->type_flags = header[0];
+    out->type_flags = hdr[0];
 
-    uint32_t rlen  = 0;
-    size_t   rbytes = 0;
-    uint8_t  byte;
-    uint32_t multiplier = 1;
+    uint32_t rlen       = (uint32_t)(hdr[1] & 0x7F);
+    uint32_t multiplier = 128;
 
-    do {
+    while (hdr[1] & 0x80) {
+        uint8_t byte;
         if (recv_exact(c->fd, &byte, 1) < 0) {
             return -1;
         }
-        rbytes++;
-        rlen += (byte & 0x7F) * multiplier;
+        rlen += (uint32_t)(byte & 0x7F) * multiplier;
         multiplier *= 128;
-        if (multiplier > 128 * 128 * 128) {
+        if (multiplier > 128u * 128u * 128u) {
             LOG_WRN("client[%d] malformed remaining-length", c->slot);
             return -1;
         }
-    } while (byte & 0x80);
+        hdr[1] = byte;
+    }
 
     out->remaining_len = rlen;
 
@@ -482,8 +484,6 @@ static int recv_packet(client_t *c, mqtt_packet_t *out)
         return -1;
     }
     out->buf_len = rlen;
-
-    ARG_UNUSED(rbytes);
     return 0;
 }
 
