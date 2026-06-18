@@ -408,9 +408,10 @@ void topic_unsubscribe_all(struct client *c)
 
 static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 {
-    /* store/clear retained message */
+    /* One lock covers both the retain store update and fan-out. */
+    plat_mutex_lock(&topic_lock);
+
     if (pub->retain) {
-        plat_mutex_lock(&topic_lock);
         int found = -1;
         for (int i = 0; i < TOPIC_RETAIN_MAX; i++) {
             if (retains[i].in_use &&
@@ -446,11 +447,9 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
                         TOPIC_RETAIN_MAX, pub->topic);
             }
         }
-        plat_mutex_unlock(&topic_lock);
     }
 
     /* fan-out to matching subscribers */
-    plat_mutex_lock(&topic_lock);
     uint32_t bucket = topic_hash(pub->topic) % TOPIC_MAX_SUBS;
     if (pub->qos == 0) {
         client_t *targets[TOPIC_MAX_SUBS];
