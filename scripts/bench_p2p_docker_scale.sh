@@ -8,6 +8,9 @@
 # This simulates broker nodes with separate Docker network namespaces and IPs.
 # It still shares one physical host, so throughput is useful for topology and
 # routing stability checks, not a replacement for a true multi-machine test.
+# Set ESP32_PROFILE=1 to constrain each broker container to an ESP32-like
+# envelope: MQTT_MAX_CLIENTS<=8, P2P_PEER_MAX<=5, STATIC_SEED_FANOUT<=2, and
+# small container process/CPU budgets.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +27,10 @@ MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-512}"
 P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-128}"
 ROUTER_COUNT="${ROUTER_COUNT:-0}"
 STATIC_SEED_FANOUT="${STATIC_SEED_FANOUT:-10}"
+STRICT_ESP32="${STRICT_ESP32:-0}"
+ESP32_PROFILE="${ESP32_PROFILE:-0}"
+BROKER_DOCKER_CPUS="${BROKER_DOCKER_CPUS:-}"
+BROKER_DOCKER_PIDS_LIMIT="${BROKER_DOCKER_PIDS_LIMIT:-}"
 STARTUP_SEC="${STARTUP_SEC:-2}"
 SYNC_SETTLE_SEC="${SYNC_SETTLE_SEC:-5}"
 BENCH_KEEPALIVE="${BENCH_KEEPALIVE:-600}"
@@ -36,6 +43,19 @@ IP_PREFIX="${IP_PREFIX:-172.31.1}"
 WAIT_MQTT_TIMEOUT_SEC="${WAIT_MQTT_TIMEOUT_SEC:-30}"
 KEEP_CONTAINERS_ON_EXIT="${KEEP_CONTAINERS_ON_EXIT:-0}"
 LOADGEN_IN_DOCKER="${LOADGEN_IN_DOCKER:-1}"
+
+if [ "$ESP32_PROFILE" -eq 1 ]; then
+    STRICT_ESP32=1
+    MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-8}"
+    P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-5}"
+    [ "$MQTT_MAX_CLIENTS_BENCH" -gt 8 ] && MQTT_MAX_CLIENTS_BENCH=8
+    [ "$P2P_PEER_MAX_BENCH" -gt 5 ] && P2P_PEER_MAX_BENCH=5
+    [ "$STATIC_SEED_FANOUT" -gt 2 ] && STATIC_SEED_FANOUT=2
+    [ "$STARTUP_SEC" -lt 2 ] && STARTUP_SEC=2
+    [ "$SYNC_SETTLE_SEC" -lt 10 ] && SYNC_SETTLE_SEC=10
+    [ -z "$BROKER_DOCKER_CPUS" ] && BROKER_DOCKER_CPUS="1.0"
+    [ -z "$BROKER_DOCKER_PIDS_LIMIT" ] && BROKER_DOCKER_PIDS_LIMIT="24"
+fi
 
 RESULTS_FILE="$OUT/results.csv"
 CONTAINERS=""
@@ -132,6 +152,14 @@ _start_brokers() {
     local count="$1"
     local bin="$2"
     local scenario="$3"
+    local docker_resource_args=()
+
+    if [ -n "$BROKER_DOCKER_CPUS" ]; then
+        docker_resource_args+=(--cpus "$BROKER_DOCKER_CPUS")
+    fi
+    if [ -n "$BROKER_DOCKER_PIDS_LIMIT" ]; then
+        docker_resource_args+=(--pids-limit "$BROKER_DOCKER_PIDS_LIMIT")
+    fi
 
     for ((i = 0; i < count; i++)); do
         local name="mqtt-p2p-${scenario}-${i}"
@@ -143,6 +171,7 @@ _start_brokers() {
         : > "$log"
         docker rm -f "$name" >/dev/null 2>&1 || true
         if ! docker run -d --name "$name" \
+                "${docker_resource_args[@]}" \
                 --network "$NETWORK_NAME" --ip "$ip" \
                 -e MQTT_P2P_PEERS="$seeds" \
                 -v "$bin:/mqtt_broker:ro" \
@@ -215,7 +244,7 @@ _run_python_load() {
 
     "${cmd[@]}" "$hosts_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
         "$SENSOR_CLIENTS" "$SENSOR_CONNECTIONS" "$SENSOR_WORKERS" "$BENCH_KEEPALIVE" \
-        "$BENCH_DRAIN_TIMEOUT_SEC" <<'PY'
+        "$BENCH_DRAIN_TIMEOUT_SEC" "$ESP32_PROFILE" <<'PY'
 import socket
 import statistics
 import sys
@@ -232,6 +261,7 @@ sensor_connections = int(sys.argv[7])
 sensor_workers = int(sys.argv[8])
 bench_keepalive = int(sys.argv[9])
 drain_timeout_sec = float(sys.argv[10])
+esp32_profile = int(sys.argv[11]) != 0
 
 KEEPALIVE = bench_keepalive
 MQTT_CONNECT = 0x10
@@ -358,6 +388,8 @@ if sensor_clients <= 0:
     sensor_clients = 1
 if sensor_connections <= 0:
     sensor_connections = min(sensor_clients, 128)
+if esp32_profile:
+    sensor_connections = min(sensor_connections, 2)
 sensor_connections = max(1, min(sensor_connections, sensor_clients))
 
 pub_socks = []
@@ -528,8 +560,12 @@ for bench_topics in $TOPIC_COUNTS; do
             topic_slots=$((per_broker_subs + 32))
             remote_slots_per_node=$((per_broker_subs + 32))
             peer_max="$P2P_PEER_MAX_BENCH"
-            [ "$peer_max" -lt "$STATIC_SEED_FANOUT" ] && peer_max="$STATIC_SEED_FANOUT"
-            [ "$peer_max" -lt 10 ] && peer_max=10
+            if [ "$STRICT_ESP32" -eq 1 ]; then
+                [ "$peer_max" -gt 5 ] && peer_max=5
+            else
+                [ "$peer_max" -lt "$STATIC_SEED_FANOUT" ] && peer_max="$STATIC_SEED_FANOUT"
+                [ "$peer_max" -lt 10 ] && peer_max=10
+            fi
             router_count="$ROUTER_COUNT"
             [ "$router_count" -gt "$count" ] && router_count="$count"
 

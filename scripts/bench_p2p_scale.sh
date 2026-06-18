@@ -13,6 +13,7 @@
 #   TOPIC_COUNTS="200 10000" MESSAGE_COUNTS="50 500" ./scripts/bench_p2p_scale.sh
 #   TARGET_P95_MS=10 ./scripts/bench_p2p_scale.sh
 #   STRICT_ESP32=1 ./scripts/bench_p2p_scale.sh
+#   ESP32_PROFILE=1 ./scripts/bench_p2p_scale.sh
 #   MOSQUITTO_BENCH=0 ./scripts/bench_p2p_scale.sh
 #   SENSOR_CLIENTS=1000 TOPIC_COUNTS="100 200" MESSAGE_COUNTS="50000" ./scripts/bench_p2p_scale.sh
 #
@@ -23,6 +24,10 @@
 # auto-raised to count-1 for larger tests. ROUTER_COUNT=0 enables the
 # reward-driven dynamic router budget search; set ROUTER_COUNT=N to force a
 # fixed router budget in a given round.
+#
+# ESP32_PROFILE=1 turns on STRICT_ESP32 and clamps the benchmark to a tighter
+# ESP32-like envelope: MQTT_MAX_CLIENTS<=8, P2P_PEER_MAX<=5, and
+# STATIC_SEED_FANOUT<=2.
 #
 # MOSQUITTO_BENCH=1 runs a single local mosquitto instance with the same load
 # before the mqtt_min_broker rounds, so the output can compare both
@@ -49,6 +54,7 @@ MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-8}"
 P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-10}"
 ROUTER_COUNT="${ROUTER_COUNT:-0}"
 STRICT_ESP32="${STRICT_ESP32:-0}"
+ESP32_PROFILE="${ESP32_PROFILE:-0}"
 EXTRA_CFLAGS="${EXTRA_CFLAGS:--DCONFIG_MQTT_P2P_STATIC_SEEDS_ONLY}"
 BASE_MQTT_PORT="${BASE_MQTT_PORT:-19100}"
 BASE_P2P_PORT="${BASE_P2P_PORT:-29100}"
@@ -65,6 +71,17 @@ SENSOR_CONNECTIONS="${SENSOR_CONNECTIONS:-0}"
 SENSOR_WORKERS="${SENSOR_WORKERS:-64}"
 BENCH_KEEPALIVE="${BENCH_KEEPALIVE:-600}"
 BENCH_DRAIN_TIMEOUT_SEC="${BENCH_DRAIN_TIMEOUT_SEC:-60}"
+
+if [ "$ESP32_PROFILE" -eq 1 ]; then
+    STRICT_ESP32=1
+    MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-8}"
+    P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-5}"
+    [ "$P2P_PEER_MAX_BENCH" -gt 5 ] && P2P_PEER_MAX_BENCH=5
+    [ "$MQTT_MAX_CLIENTS_BENCH" -gt 8 ] && MQTT_MAX_CLIENTS_BENCH=8
+    [ "$STATIC_SEED_FANOUT" -gt 2 ] && STATIC_SEED_FANOUT=2
+    [ "$STARTUP_SEC" -lt 2 ] && STARTUP_SEC=2
+    [ "$SYNC_SETTLE_SEC" -lt 10 ] && SYNC_SETTLE_SEC=10
+fi
 
 PASS_COUNT=""
 PIDS=""
@@ -251,7 +268,7 @@ _run_python_load() {
     python3 - "$ports_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
         "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" "$SENSOR_CLIENTS" \
         "$SENSOR_CONNECTIONS" "$SENSOR_WORKERS" "$BENCH_KEEPALIVE" \
-        "$BENCH_DRAIN_TIMEOUT_SEC" <<'PY'
+        "$BENCH_DRAIN_TIMEOUT_SEC" "$ESP32_PROFILE" <<'PY'
 import socket
 import statistics
 import sys
@@ -270,6 +287,7 @@ sensor_connections = int(sys.argv[9])
 sensor_workers = int(sys.argv[10])
 bench_keepalive = int(sys.argv[11])
 drain_timeout_sec = float(sys.argv[12])
+esp32_profile = int(sys.argv[13]) != 0
 
 HOST = "127.0.0.1"
 KEEPALIVE = bench_keepalive
@@ -405,6 +423,8 @@ pub_ports = []
 if sensor_clients > 0:
     if sensor_connections <= 0:
         sensor_connections = min(sensor_clients, 128)
+    if esp32_profile:
+        sensor_connections = min(sensor_connections, 2)
     sensor_connections = max(1, min(sensor_connections, sensor_clients))
     pub_count = sensor_connections
     for i in range(pub_count):

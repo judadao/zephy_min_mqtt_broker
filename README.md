@@ -196,6 +196,19 @@ Set `DISTRIBUTED_PUBLISHERS=1 SCALE_MESSAGES_BY_BROKER=1` to run one
 publisher per broker and scale the total message count with the broker count.
 Set `STATIC_SEED_FANOUT=N` to connect each new broker to the previous `N`
 brokers during local static-seed tests.
+Set `ESP32_PROFILE=1` to simulate a tighter ESP32 broker envelope. This
+caps each broker to `MQTT_MAX_CLIENTS<=8`, `P2P_PEER_MAX<=5`, and
+`STATIC_SEED_FANOUT<=2`. The profile also raises the settle window to avoid
+measuring startup noise as lost messages. In the Docker benchmark it adds
+per-container CPU and process caps so each broker process behaves more like
+one ESP32 node.
+
+Example:
+
+```bash
+ESP32_PROFILE=1 BROKER_COUNTS="10 50 100" SENSOR_CLIENTS=1000 \
+    MESSAGE_COUNTS="10000" ./scripts/bench_p2p_docker_scale.sh
+```
 
 Recent local result:
 
