@@ -219,7 +219,8 @@ For the exact scenario you asked for, use the dedicated wrapper:
 It runs two phases:
 
 1. One broker under heavy client/topic/message load.
-2. An ESP32-like broker mesh at 5 and 10 nodes.
+2. An ESP32-like broker mesh at 5 and 10 nodes, using distributed publishers
+   so each broker carries a share of ingress load.
 
 You can tune the two phases independently with `SINGLE_BROKER_*` and
 `ESP32_*` environment variables.

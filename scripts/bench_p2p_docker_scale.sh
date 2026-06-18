@@ -27,6 +27,8 @@ MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-512}"
 P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-128}"
 ROUTER_COUNT="${ROUTER_COUNT:-0}"
 STATIC_SEED_FANOUT="${STATIC_SEED_FANOUT:-10}"
+DISTRIBUTED_PUBLISHERS="${DISTRIBUTED_PUBLISHERS:-0}"
+SCALE_MESSAGES_BY_BROKER="${SCALE_MESSAGES_BY_BROKER:-0}"
 STRICT_ESP32="${STRICT_ESP32:-0}"
 ESP32_PROFILE="${ESP32_PROFILE:-0}"
 BROKER_DOCKER_CPUS="${BROKER_DOCKER_CPUS:-}"
@@ -245,7 +247,8 @@ _run_python_load() {
 
     "${cmd[@]}" "$hosts_csv" "$total_subs" "$messages" "$target_ms" "$sync_settle" \
         "$SENSOR_CLIENTS" "$SENSOR_CONNECTIONS" "$SENSOR_WORKERS" "$BENCH_KEEPALIVE" \
-        "$BENCH_DRAIN_TIMEOUT_SEC" "$ESP32_PROFILE" <<'PY'
+        "$BENCH_DRAIN_TIMEOUT_SEC" "$DISTRIBUTED_PUBLISHERS" "$SCALE_MESSAGES_BY_BROKER" \
+        "$ESP32_PROFILE" <<'PY'
 import socket
 import statistics
 import sys
@@ -262,7 +265,10 @@ sensor_connections = int(sys.argv[7])
 sensor_workers = int(sys.argv[8])
 bench_keepalive = int(sys.argv[9])
 drain_timeout_sec = float(sys.argv[10])
-esp32_profile = int(sys.argv[11]) != 0
+distributed_publishers = int(sys.argv[11]) != 0
+scale_messages_by_broker = int(sys.argv[12]) != 0
+esp32_profile = int(sys.argv[13]) != 0
+sensor_divisor = max(1, sensor_clients)
 
 KEEPALIVE = bench_keepalive
 MQTT_CONNECT = 0x10
@@ -393,10 +399,17 @@ sensor_connections = max(1, min(sensor_connections, sensor_clients))
 
 pub_socks = []
 pub_hosts = []
-for i in range(sensor_connections):
-    host_idx = i % broker_count
-    pub_socks.append(connect_client(hosts[host_idx], f"bench-sensor-conn-{i}"))
-    pub_hosts.append(host_idx)
+if sensor_clients > 0:
+    for i in range(sensor_connections):
+        host_idx = i % broker_count
+        pub_socks.append(connect_client(hosts[host_idx], f"bench-sensor-conn-{i}"))
+        pub_hosts.append(host_idx)
+else:
+    pub_count = broker_count if distributed_publishers else 1
+    for i in range(pub_count):
+        host_idx = i % broker_count
+        pub_socks.append(connect_client(hosts[host_idx], f"bench-pub-{i}"))
+        pub_hosts.append(host_idx)
 
 remote_topics_by_pub = []
 for pub_idx, host_idx in enumerate(pub_hosts):
@@ -405,6 +418,10 @@ for pub_idx, host_idx in enumerate(pub_hosts):
     if not remote:
         remote = [t for ts in topics_by_broker for t in ts]
     remote_topics_by_pub.append(remote)
+
+base_messages = messages
+if scale_messages_by_broker:
+    messages = base_messages * broker_count
 
 send_times = [0] * messages
 lat_ms = []
@@ -449,20 +466,20 @@ for thread in recv_threads:
     thread.start()
 
 send_start = time.monotonic()
-worker_count = max(1, min(sensor_workers, sensor_connections))
+worker_count = max(1, min(sensor_workers, len(pub_socks)))
 start_event = threading.Event()
 errors = []
 
 def sensor_worker(worker_idx):
     try:
         start_event.wait()
-        for conn_idx in range(worker_idx, sensor_connections, worker_count):
+        for conn_idx in range(worker_idx, len(pub_socks), worker_count):
             topics = remote_topics_by_pub[conn_idx]
-            for seq in range(conn_idx, messages, sensor_connections):
-                sensor_id = seq % sensor_clients
+            for seq in range(conn_idx, messages, len(pub_socks)):
+                sensor_id = seq % sensor_divisor
                 now_ns = time.time_ns()
                 send_times[seq] = now_ns
-                topic = topics[(sensor_id + seq // sensor_clients) % len(topics)]
+                topic = topics[(sensor_id + seq // sensor_divisor) % len(topics)]
                 publish_qos0(pub_socks[conn_idx], topic,
                              f"{seq},{now_ns},{sensor_id}".encode())
     except Exception as exc:
