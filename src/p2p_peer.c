@@ -1074,9 +1074,9 @@ void p2p_local_subscribe(const char *filter, uint8_t qos)
     uint8_t self_id[P2P_NODE_ID_LEN];
 
     p2p_election_self_id(msg.owner_id);
+    memcpy(self_id, msg.owner_id, P2P_NODE_ID_LEN);
     strncpy(msg.filter, filter, sizeof(msg.filter) - 1);
     msg.qos = qos;
-    p2p_election_self_id(self_id);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
         if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_SUB_NOTIFY)) {
@@ -1092,8 +1092,8 @@ void p2p_local_unsubscribe(const char *filter)
     uint8_t self_id[P2P_NODE_ID_LEN];
 
     p2p_election_self_id(msg.owner_id);
+    memcpy(self_id, msg.owner_id, P2P_NODE_ID_LEN);
     strncpy(msg.filter, filter, sizeof(msg.filter) - 1);
-    p2p_election_self_id(self_id);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
         if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_UNSUB_NOTIFY)) {
@@ -1122,6 +1122,7 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     uint8_t self_id[P2P_NODE_ID_LEN];
 
     p2p_election_self_id(msg.origin_id);
+    memcpy(self_id, msg.origin_id, P2P_NODE_ID_LEN);
     msg.seq = ++local_seq;
     strncpy(msg.topic, pub->topic, sizeof(msg.topic) - 1);
     msg.payload_len = pub->payload_len;
@@ -1132,8 +1133,6 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     if (build_publish_frame(&msg, frame, sizeof(frame), &frame_len) < 0) {
         return;
     }
-
-    p2p_election_self_id(self_id);
     if (!p2p_shard_owner_for_topic(pub->topic, owner_id) ||
         id_cmp(owner_id, self_id) == 0) {
         p2p_router_publish(&msg, NULL);
