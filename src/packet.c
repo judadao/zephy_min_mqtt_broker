@@ -274,7 +274,6 @@ int packet_build_suback(uint16_t packet_id,
                          const uint8_t *return_codes, uint8_t count,
                          uint8_t *out, size_t out_cap)
 {
-    size_t total = 2 + 2 + count; /* header + remaining-len(1) is oversimplified; use 2 for safety */
     if (out_cap < (size_t)(4 + count)) {
         return -1;
     }
@@ -283,7 +282,6 @@ int packet_build_suback(uint16_t packet_id,
     write_u16(out + 2, packet_id);
     memcpy(out + 4, return_codes, count);
     return (int)(4 + count);
-    (void)total;
 }
 
 int packet_build_unsuback(uint16_t packet_id, uint8_t *out, size_t out_cap)
