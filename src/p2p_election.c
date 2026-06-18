@@ -95,6 +95,68 @@ static int router_target_count(int active_nodes)
 #endif
 }
 
+int p2p_election_peer_budget(int active_nodes)
+{
+    p2p_router_stats_t stats = {0};
+    int publish_pressure;
+    int remote_pressure;
+    int best_degree = 1;
+    int best_reward = INT_MIN;
+    int max_degree;
+
+    if (active_nodes <= 1) {
+        return 1;
+    }
+
+    max_degree = active_nodes - 1;
+    if (max_degree > P2P_PEER_MAX) {
+        max_degree = P2P_PEER_MAX;
+    }
+#if P2P_ROUTER_COUNT > 0
+    if (P2P_ROUTER_COUNT < max_degree) {
+        max_degree = P2P_ROUTER_COUNT;
+    }
+#endif
+    if (!p2p_router_stats(&stats)) {
+        stats.remote_nodes = 0;
+        stats.remote_subs = 0;
+        stats.exact_routes = 0;
+        stats.wildcard_routes = 0;
+    }
+
+    publish_pressure = st.publish_rate > 4000U ? 4000 : (int)st.publish_rate;
+    remote_pressure = (int)stats.remote_subs * 6 +
+                      (int)stats.exact_routes * 2 +
+                      (int)stats.wildcard_routes * 3 +
+                      (int)stats.remote_nodes * 8;
+
+    for (int candidate = 1; candidate <= max_degree; candidate++) {
+        int span = (active_nodes + candidate - 1) / candidate;
+        int reward;
+        int coverage;
+        int diversity;
+        int cost;
+
+        coverage = (remote_pressure * candidate) / active_nodes;
+        diversity = candidate > 1 ? ilog2_floor(candidate) * 12 : 0;
+        cost = (candidate * 18) + (span * span * 2) + (active_nodes * 3);
+        reward = (publish_pressure / 10) + coverage + diversity - cost;
+        if (stats.remote_nodes > 0) {
+            reward += 10;
+        }
+        if (reward > best_reward ||
+            (reward == best_reward && candidate < best_degree)) {
+            best_reward = reward;
+            best_degree = candidate;
+        }
+    }
+
+    if (best_degree < 1) {
+        best_degree = 1;
+    }
+    return best_degree;
+}
+
 static int32_t local_score(void)
 {
     int free_slots = client_free_slots();

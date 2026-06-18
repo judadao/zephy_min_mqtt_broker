@@ -109,6 +109,7 @@ p2p_role_t p2p_election_role(void);
 int p2p_election_snapshot(p2p_peer_score_t *out, int max);
 void p2p_election_build_announce(p2p_announce_t *out);
 void p2p_election_self_id(uint8_t out[P2P_NODE_ID_LEN]);
+int p2p_election_peer_budget(int active_nodes);
 
 int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                 const char *filter, uint8_t qos,

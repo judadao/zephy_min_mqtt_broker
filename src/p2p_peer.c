@@ -120,6 +120,35 @@ static int id_cmp(const uint8_t *a, const uint8_t *b)
     return memcmp(a, b, P2P_NODE_ID_LEN);
 }
 
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+static uint32_t fnv1a32_update(uint32_t hash, const uint8_t *data, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static uint32_t peer_affinity(const uint8_t self_id[P2P_NODE_ID_LEN],
+                              const uint8_t peer_id[P2P_NODE_ID_LEN])
+{
+    uint32_t hash = 2166136261u;
+
+    hash = fnv1a32_update(hash, self_id, P2P_NODE_ID_LEN);
+    hash = fnv1a32_update(hash, peer_id, P2P_NODE_ID_LEN);
+    return hash;
+}
+
+static int32_t peer_priority(const uint8_t self_id[P2P_NODE_ID_LEN],
+                             const p2p_peer_score_t *peer)
+{
+    uint32_t affinity = peer_affinity(self_id, peer->node_id);
+
+    return (peer->score * 256) - (int32_t)(affinity & 0x7ffu);
+}
+#endif
+
 static int send_all(int fd, const void *buf, size_t len)
 {
     const uint8_t *p = (const uint8_t *)buf;
@@ -546,7 +575,7 @@ static int has_conn_to(const uint8_t node_id[P2P_NODE_ID_LEN])
 }
 #endif
 
-static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
+static int connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
 {
     int fd;
     struct sockaddr_in addr = {
@@ -557,28 +586,29 @@ static void connect_to_addr(uint32_t peer_addr, uint16_t p2p_port)
     p2p_conn_t *c;
 
     if (addr_conn_exists(peer_addr, p2p_port)) {
-        return;
+        return 0;
     }
 
     fd = plat_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) {
-        return;
+        return 0;
     }
     if (plat_connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         plat_close(fd);
-        return;
+        return 0;
     }
     configure_peer_socket(fd);
     c = alloc_conn(fd, peer_addr, p2p_port, 1);
     if (!c) {
         plat_close(fd);
-        return;
+        return 0;
     }
     spawn_peer(c);
+    return 1;
 }
 
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
-static void connect_to_peer(const p2p_peer_score_t *peer)
+static int connect_to_peer(const p2p_peer_score_t *peer)
 {
     uint8_t self_id[P2P_NODE_ID_LEN];
 
@@ -586,9 +616,9 @@ static void connect_to_peer(const p2p_peer_score_t *peer)
     if (id_equal(peer->node_id, self_id) ||
         peer->role != P2P_ROLE_ROUTER ||
         has_conn_to(peer->node_id)) {
-        return;
+        return 0;
     }
-    connect_to_addr(peer->addr, peer->p2p_port);
+    return connect_to_addr(peer->addr, peer->p2p_port);
 }
 #endif
 
@@ -622,37 +652,95 @@ static void connect_loop(void *p1, void *p2, void *p3)
     ARG_UNUSED(p3);
 
     while (1) {
-#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+        uint8_t self_id[P2P_NODE_ID_LEN];
+        int connected = 0;
+        int budget = 0;
         p2p_peer_score_t peers[P2P_PEER_MAX + 1];
         int n = p2p_election_snapshot(peers, P2P_PEER_MAX + 1);
-        for (int i = 0; i < n; i++) {
-            connect_to_peer(&peers[i]);
-        }
+
+        p2p_election_self_id(self_id);
+        budget = p2p_election_peer_budget(n);
+#if defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+        ARG_UNUSED(peers);
 #endif
-        send_current_hello_to_peers();
-#ifndef __ZEPHYR__
-        const char *seeds = getenv("MQTT_P2P_PEERS");
-        if (seeds && seeds[0]) {
-            char tmp[2048];
-            strncpy(tmp, seeds, sizeof(tmp) - 1);
-            tmp[sizeof(tmp) - 1] = '\0';
-            char *saveptr = NULL;
-            for (char *tok = strtok_r(tmp, ",", &saveptr);
-                 tok;
-                 tok = strtok_r(NULL, ",", &saveptr)) {
-                char *colon = strrchr(tok, ':');
-                if (!colon) {
+
+        if (budget > 0) {
+            for (int i = 1; i < P2P_PEER_MAX + 1; i++) {
+                if (!conns[i - 1].connected) {
                     continue;
                 }
-                *colon = '\0';
-                uint32_t addr = inet_addr(tok);
-                int port = atoi(colon + 1);
-                if (addr != INADDR_NONE && port > 0 && port <= 65535) {
-                    connect_to_addr(addr, (uint16_t)port);
+                connected++;
+            }
+        }
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+        if (connected < budget) {
+            p2p_peer_score_t candidates[P2P_PEER_MAX + 1];
+            int candidate_count = 0;
+
+            for (int i = 0; i < n; i++) {
+                if (peers[i].role != P2P_ROLE_ROUTER) {
+                    continue;
                 }
+                if (id_equal(peers[i].node_id, self_id) || has_conn_to(peers[i].node_id)) {
+                    continue;
+                }
+                candidates[candidate_count++] = peers[i];
+            }
+            for (int i = 0; i < candidate_count; i++) {
+                int best = i;
+                int32_t best_priority = peer_priority(self_id, &candidates[i]);
+                for (int j = i + 1; j < candidate_count; j++) {
+                    int32_t pri = peer_priority(self_id, &candidates[j]);
+                    if (pri > best_priority ||
+                        (pri == best_priority && id_cmp(candidates[j].node_id,
+                                                        candidates[best].node_id) < 0)) {
+                        best = j;
+                        best_priority = pri;
+                    }
+                }
+                if (best != i) {
+                    p2p_peer_score_t tmp = candidates[i];
+                    candidates[i] = candidates[best];
+                    candidates[best] = tmp;
+                }
+            }
+            for (int i = 0; i < candidate_count && connected < budget; i++) {
+                connected += connect_to_peer(&candidates[i]);
             }
         }
 #endif
+
+        {
+            const char *seeds = NULL;
+#ifndef __ZEPHYR__
+            seeds = getenv("MQTT_P2P_PEERS");
+#endif
+            if (seeds && seeds[0]) {
+                char tmp[2048];
+                strncpy(tmp, seeds, sizeof(tmp) - 1);
+                tmp[sizeof(tmp) - 1] = '\0';
+                char *saveptr = NULL;
+                for (char *tok = strtok_r(tmp, ",", &saveptr);
+                     tok;
+                     tok = strtok_r(NULL, ",", &saveptr)) {
+                    char *colon = strrchr(tok, ':');
+                    if (!colon) {
+                        continue;
+                    }
+                    *colon = '\0';
+                    uint32_t addr = inet_addr(tok);
+                    int port = atoi(colon + 1);
+                    if (addr != INADDR_NONE && port > 0 && port <= 65535) {
+                        connected += connect_to_addr(addr, (uint16_t)port);
+                    }
+                    if (budget > 0 && connected >= budget) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        send_current_hello_to_peers();
 #ifdef __ZEPHYR__
         k_sleep(K_MSEC(3000));
 #else
