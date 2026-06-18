@@ -132,16 +132,22 @@ static void http_send(int fd, int code, const char *ctype,
     if (blen) send(fd, body, blen, 0);
 }
 
-/* extract first value of "key":"..." from json (in-place, no alloc) */
-static int json_str(const char *json, const char *key, char *out, size_t cap)
+/* locate the value portion of "key": <value> in a JSON string */
+static const char *json_find_value(const char *json, const char *key)
 {
     char search[72];
     snprintf(search, sizeof(search), "\"%s\":", key);
     const char *p = strstr(json, search);
-    if (!p) return -1;
+    if (!p) return NULL;
     p += strlen(search);
     while (*p == ' ') p++;
-    if (*p != '"') return -1;
+    return p;
+}
+
+static int json_str(const char *json, const char *key, char *out, size_t cap)
+{
+    const char *p = json_find_value(json, key);
+    if (!p || *p != '"') return -1;
     p++;
     size_t i = 0;
     while (*p && *p != '"' && i < cap - 1) out[i++] = *p++;
@@ -151,13 +157,8 @@ static int json_str(const char *json, const char *key, char *out, size_t cap)
 
 static int json_int(const char *json, const char *key)
 {
-    char search[72];
-    snprintf(search, sizeof(search), "\"%s\":", key);
-    const char *p = strstr(json, search);
-    if (!p) return 0;
-    p += strlen(search);
-    while (*p == ' ') p++;
-    return atoi(p);
+    const char *p = json_find_value(json, key);
+    return p ? atoi(p) : 0;
 }
 
 /* ── request handlers ───────────────────────────────────────────────────────── */
