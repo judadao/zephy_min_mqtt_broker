@@ -44,6 +44,13 @@ static int ilog2_floor(int n)
     return r;
 }
 
+static void safe_router_stats(p2p_router_stats_t *s)
+{
+    if (!p2p_router_stats(s)) {
+        memset(s, 0, sizeof(*s));
+    }
+}
+
 static int router_target_count(int active_nodes)
 {
     if (active_nodes <= 1) {
@@ -59,12 +66,7 @@ static int router_target_count(int active_nodes)
     int best_count = 1;
     int best_reward = INT_MIN;
 
-    if (!p2p_router_stats(&stats)) {
-        stats.remote_nodes = 0;
-        stats.remote_subs = 0;
-        stats.exact_routes = 0;
-        stats.wildcard_routes = 0;
-    }
+    safe_router_stats(&stats);
     publish_pressure = st.publish_rate > 4000U ? 4000 : (int)st.publish_rate;
     remote_pressure = (int)stats.remote_subs * 4 +
                       (int)stats.exact_routes * 2 +
@@ -123,12 +125,7 @@ int p2p_election_peer_budget(int active_nodes)
         max_degree = P2P_ROUTER_COUNT;
     }
 #endif
-    if (!p2p_router_stats(&stats)) {
-        stats.remote_nodes = 0;
-        stats.remote_subs = 0;
-        stats.exact_routes = 0;
-        stats.wildcard_routes = 0;
-    }
+    safe_router_stats(&stats);
 
     publish_pressure = st.publish_rate > 4000U ? 4000 : (int)st.publish_rate;
     remote_pressure = (int)stats.remote_subs * 6 +
@@ -168,6 +165,19 @@ int p2p_election_peer_budget(int active_nodes)
     return best_degree;
 }
 
+static void flush_publish_window_locked(int64_t now)
+{
+    if (st.publish_window_ms == 0) {
+        st.publish_window_ms = now;
+    } else if (now - st.publish_window_ms >= 1000) {
+        int64_t elapsed = now - st.publish_window_ms;
+        st.publish_rate = (uint32_t)(((uint64_t)st.publish_count * 1000U) /
+                                     (uint64_t)elapsed);
+        st.publish_count = 0;
+        st.publish_window_ms = now;
+    }
+}
+
 static int32_t local_score(void)
 {
     int free_slots = client_free_slots();
@@ -182,15 +192,7 @@ static int32_t local_score(void)
         }
     }
 
-    if (st.publish_window_ms == 0) {
-        st.publish_window_ms = now;
-    } else if (now - st.publish_window_ms >= 1000) {
-        int64_t elapsed = now - st.publish_window_ms;
-        st.publish_rate = (uint32_t)(((uint64_t)st.publish_count * 1000U) /
-                                     (uint64_t)elapsed);
-        st.publish_count = 0;
-        st.publish_window_ms = now;
-    }
+    flush_publish_window_locked(now);
 
     publish_penalty = st.publish_rate > 1000U ? 1000 : (int)st.publish_rate;
     return (free_slots * 10) + uptime_bonus - (active_peers * 5) - publish_penalty;
@@ -342,15 +344,7 @@ void p2p_election_record_publish(void)
     int64_t now = plat_uptime_ms();
 
     plat_mutex_lock(&p2p_lock);
-    if (st.publish_window_ms == 0) {
-        st.publish_window_ms = now;
-    } else if (now - st.publish_window_ms >= 1000) {
-        int64_t elapsed = now - st.publish_window_ms;
-        st.publish_rate = (uint32_t)(((uint64_t)st.publish_count * 1000U) /
-                                     (uint64_t)elapsed);
-        st.publish_count = 0;
-        st.publish_window_ms = now;
-    }
+    flush_publish_window_locked(now);
     if (st.publish_count < UINT32_MAX) {
         st.publish_count++;
     }
