@@ -19,6 +19,7 @@ if(CONFIG_MQTT_MIN_BROKER)
     ../src/p2p_election.c
     ../src/p2p_peer.c
     ../src/p2p_router.c
+    ../src/p2p_shard.c
   )
 
   # expose include/ and project root (for platform/platform.h)

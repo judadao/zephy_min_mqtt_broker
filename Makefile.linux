@@ -26,7 +26,7 @@ endif
 #   make -f Makefile.linux P2P=1 MQTT_PORT=1884 P2P_PORT=4894
 ifdef P2P
 CFLAGS += -DCONFIG_MQTT_P2P_DYNAMIC
-SRCS_P2P = src/p2p_discover.c src/p2p_election.c src/p2p_peer.c src/p2p_router.c
+SRCS_P2P = src/p2p_discover.c src/p2p_election.c src/p2p_peer.c src/p2p_router.c src/p2p_shard.c
 endif
 
 ifdef MQTT_PORT

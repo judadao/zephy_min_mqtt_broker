@@ -96,6 +96,10 @@ void p2p_peer_start(void);
 void p2p_local_subscribe(const char *filter, uint8_t qos);
 void p2p_local_unsubscribe(const char *filter);
 void p2p_publish_from_local(const mqtt_publish_t *pub);
+int p2p_send_publish_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
+                             const p2p_publish_msg_t *msg);
+int p2p_send_sub_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
+                         const p2p_sub_msg_t *msg, uint8_t type);
 void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                                   const uint8_t *exclude_node_id);
 void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,

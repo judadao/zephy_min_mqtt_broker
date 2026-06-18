@@ -5,6 +5,7 @@
 #include "session.h"
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
 #include "p2p.h"
+#include "p2p_shard.h"
 #endif
 
 LOG_MODULE_REGISTER(mqtt_topic, LOG_LEVEL_DBG);

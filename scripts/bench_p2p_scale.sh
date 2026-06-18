@@ -187,6 +187,7 @@ _build_node() {
         "$ROOT/src/p2p_election.c" \
         "$ROOT/src/p2p_peer.c" \
         "$ROOT/src/p2p_router.c" \
+        "$ROOT/src/p2p_shard.c" \
         "$ROOT/platform/posix/platform_posix.c" \
         -o "$out" -lpthread
 }

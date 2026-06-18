@@ -20,6 +20,7 @@ if(CONFIG_MQTT_P2P_DYNAMIC)
     src/p2p_election.c
     src/p2p_peer.c
     src/p2p_router.c
+    src/p2p_shard.c
   )
 endif()
 
