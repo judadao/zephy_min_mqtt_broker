@@ -51,7 +51,6 @@ typedef struct {
 
 static p2p_conn_t conns[P2P_PEER_MAX];
 static seen_msg_t seen[P2P_SEEN_MAX];
-static uint8_t seen_pos;
 static uint16_t local_seq;
 static int listen_fd = -1;
 PLAT_MUTEX_DEFINE(peer_lock);
@@ -500,19 +499,31 @@ static void send_current_hello_to_peers(void)
     plat_mutex_unlock(&peer_lock);
 }
 
+/*
+ * O(1) direct-mapped seen cache.  P2P_SEEN_MAX must be a power of two.
+ * Collision evicts the old entry; worst case is a duplicate delivery,
+ * same as the old ring buffer's time-based eviction.
+ */
 static int seen_before(const p2p_publish_msg_t *msg)
 {
+    uint32_t h = (uint32_t)(msg->origin_id[0])
+               | ((uint32_t)msg->origin_id[1] << 8)
+               | ((uint32_t)msg->origin_id[2] << 16)
+               | ((uint32_t)msg->origin_id[3] << 24);
+    h ^= (uint32_t)msg->seq;
+    h ^= h >> 16;
+    h *= 0x45d9f3bu;
+    h ^= h >> 16;
+    unsigned idx = h & (P2P_SEEN_MAX - 1u);
+
     plat_mutex_lock(&seen_lock);
-    for (int i = 0; i < P2P_SEEN_MAX; i++) {
-        if (seen[i].seq == msg->seq &&
-            id_equal(seen[i].origin_id, msg->origin_id)) {
-            plat_mutex_unlock(&seen_lock);
-            return 1;
-        }
+    seen_msg_t *slot = &seen[idx];
+    if (slot->seq == msg->seq && id_equal(slot->origin_id, msg->origin_id)) {
+        plat_mutex_unlock(&seen_lock);
+        return 1;
     }
-    memcpy(seen[seen_pos].origin_id, msg->origin_id, P2P_NODE_ID_LEN);
-    seen[seen_pos].seq = msg->seq;
-    seen_pos = (uint8_t)((seen_pos + 1) % P2P_SEEN_MAX);
+    memcpy(slot->origin_id, msg->origin_id, P2P_NODE_ID_LEN);
+    slot->seq = msg->seq;
     plat_mutex_unlock(&seen_lock);
     return 0;
 }

@@ -31,7 +31,11 @@
 #define P2P_PEER_TIMEOUT_MS   15000
 #endif
 #ifndef P2P_SEEN_MAX
+#ifdef __ZEPHYR__
 #define P2P_SEEN_MAX          32
+#else
+#define P2P_SEEN_MAX          128
+#endif
 #endif
 
 #define P2P_HELLO        0x01
