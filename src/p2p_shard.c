@@ -5,6 +5,10 @@
 
 LOG_MODULE_REGISTER(mqtt_p2p_shard, LOG_LEVEL_INF);
 
+#ifndef P2P_SHARD_KEY_LEVELS
+#define P2P_SHARD_KEY_LEVELS 2
+#endif
+
 static int id_cmp(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, P2P_NODE_ID_LEN);
@@ -38,7 +42,7 @@ static void shard_key_from_str(const char *src, char out[MQTT_TOPIC_MAX])
         out[len++] = *p;
         if (*p == '/') {
             slashes++;
-            if (slashes >= 2) {
+            if (slashes >= P2P_SHARD_KEY_LEVELS) {
                 cut = 1;
                 break;
             }
@@ -63,14 +67,6 @@ void p2p_shard_key_from_topic(const char *topic, char out[MQTT_TOPIC_MAX])
 void p2p_shard_key_from_filter(const char *filter, char out[MQTT_TOPIC_MAX])
 {
     shard_key_from_str(filter, out);
-}
-
-static int score_before(const p2p_peer_score_t *a, const p2p_peer_score_t *b)
-{
-    if (a->score != b->score) {
-        return a->score > b->score;
-    }
-    return id_cmp(a->node_id, b->node_id) < 0;
 }
 
 static int shard_owner_id_from_key(const char *shard_key, uint8_t out[P2P_NODE_ID_LEN])
@@ -103,7 +99,7 @@ static int shard_owner_id_from_key(const char *shard_key, uint8_t out[P2P_NODE_I
 
     for (int i = 0; i < router_count; i++) {
         for (int j = i + 1; j < router_count; j++) {
-            if (!score_before(&routers[i], &routers[j])) {
+            if (id_cmp(routers[j].node_id, routers[i].node_id) < 0) {
                 p2p_peer_score_t tmp = routers[i];
                 routers[i] = routers[j];
                 routers[j] = tmp;

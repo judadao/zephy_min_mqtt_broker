@@ -259,13 +259,12 @@ static int recompute_role_locked(void)
     }
     st.peers[0].role = (uint8_t)st.role;
 
+    sig = hash_update(sig, &router_count, sizeof(router_count));
     for (int i = 0; i < count; i++) {
         if (sorted[i].role != P2P_ROLE_ROUTER) {
             continue;
         }
         sig = hash_update(sig, sorted[i].node_id, P2P_NODE_ID_LEN);
-        sig = hash_update(sig, &sorted[i].score, sizeof(sorted[i].score));
-        sig = hash_update(sig, &sorted[i].role, sizeof(sorted[i].role));
     }
     st.topology_sig = sig;
 
