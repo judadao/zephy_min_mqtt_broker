@@ -659,27 +659,21 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
 #endif
 
     if (pub.qos == 2) {
-        /* check for duplicate before delivering */
-        int dup = 0;
+        int dup = 0, free_slot = -1;
         for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
-            if (c->qos2_in[i].in_use &&
-                c->qos2_in[i].packet_id == pub.packet_id) {
-                dup = 1;
-                break;
+            if (c->qos2_in[i].in_use) {
+                if (c->qos2_in[i].packet_id == pub.packet_id) {
+                    dup = 1;
+                    break;
+                }
+            } else if (free_slot < 0) {
+                free_slot = i;
             }
         }
         if (!dup) {
-            /* store packet_id for dedup, then deliver */
-            int stored = 0;
-            for (int i = 0; i < CLIENT_QOS2_IN_MAX; i++) {
-                if (!c->qos2_in[i].in_use) {
-                    c->qos2_in[i].packet_id = pub.packet_id;
-                    c->qos2_in[i].in_use    = 1;
-                    stored = 1;
-                    break;
-                }
-            }
-            if (stored) {
+            if (free_slot >= 0) {
+                c->qos2_in[free_slot].packet_id = pub.packet_id;
+                c->qos2_in[free_slot].in_use    = 1;
                 topic_publish(&pub);
             } else {
                 LOG_WRN("client[%d] QoS2-in table full, dropping id=%u topic=%s",

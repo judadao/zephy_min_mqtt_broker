@@ -235,40 +235,6 @@ static int send_frame_to_slot(int slot, uint8_t type, const void *payload, uint1
     return rc;
 }
 
-static int send_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                         const p2p_publish_msg_t *msg)
-{
-    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
-    uint16_t frame_len;
-    int slot = -1;
-
-    if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
-        return 0;
-    }
-
-    plat_mutex_lock(&send_meta_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (!send_slots[i].connected) {
-            continue;
-        }
-        if (!id_equal(send_slots[i].node_id, node_id)) {
-            continue;
-        }
-        slot = i;
-        break;
-    }
-    if (slot >= 0) {
-        plat_mutex_lock(&send_locks[slot]);
-    }
-    plat_mutex_unlock(&send_meta_lock);
-    if (slot >= 0) {
-        int ok = (send_frame(send_slots[slot].fd, P2P_PUBLISH, frame, frame_len) == 0);
-        plat_mutex_unlock(&send_locks[slot]);
-        return ok;
-    }
-    return 0;
-}
-
 static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
                                                   const uint8_t *frame,
                                                   uint16_t frame_len)
@@ -296,6 +262,18 @@ static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE
         return ok;
     }
     return 0;
+}
+
+static int send_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
+                                         const p2p_publish_msg_t *msg)
+{
+    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
+    uint16_t frame_len;
+
+    if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
+        return 0;
+    }
+    return send_prebuilt_publish_to_node_unlocked(node_id, frame, frame_len);
 }
 
 static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,

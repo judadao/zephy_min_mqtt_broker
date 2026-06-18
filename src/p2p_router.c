@@ -299,6 +299,7 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
 {
     remote_node_t *node;
     int slot = -1;
+    int found_existing = 0;
     int changed = 0;
     int route_changed = 0;
     int next_is_direct = id_equal(next_hop_id, owner_id);
@@ -319,6 +320,7 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
         if (node->subs[i].in_use &&
             strcmp(node->subs[i].filter, filter) == 0) {
             slot = i;
+            found_existing = 1;
             break;
         }
         if (!node->subs[i].in_use && slot < 0) {
@@ -327,9 +329,8 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
     }
     if (slot >= 0) {
         changed = route_changed ||
-                  !node->subs[slot].in_use ||
-                  node->subs[slot].qos != qos ||
-                  strcmp(node->subs[slot].filter, filter) != 0;
+                  !found_existing ||
+                  node->subs[slot].qos != qos;
         strncpy(node->subs[slot].filter, filter, sizeof(node->subs[slot].filter) - 1);
         node->subs[slot].qos = qos;
         node->subs[slot].in_use = 1;
