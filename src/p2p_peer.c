@@ -857,22 +857,26 @@ static void connect_loop(void *p1, void *p2, void *p3)
                 }
                 candidates[candidate_count++] = peers[i];
             }
+            int32_t priorities[P2P_PEER_MAX + 1];
+            for (int i = 0; i < candidate_count; i++) {
+                priorities[i] = peer_priority(self_id, &candidates[i]);
+            }
             for (int i = 0; i < candidate_count; i++) {
                 int best = i;
-                int32_t best_priority = peer_priority(self_id, &candidates[i]);
                 for (int j = i + 1; j < candidate_count; j++) {
-                    int32_t pri = peer_priority(self_id, &candidates[j]);
-                    if (pri > best_priority ||
-                        (pri == best_priority && id_cmp(candidates[j].node_id,
-                                                        candidates[best].node_id) < 0)) {
+                    if (priorities[j] > priorities[best] ||
+                        (priorities[j] == priorities[best] &&
+                         id_cmp(candidates[j].node_id, candidates[best].node_id) < 0)) {
                         best = j;
-                        best_priority = pri;
                     }
                 }
                 if (best != i) {
                     p2p_peer_score_t tmp = candidates[i];
                     candidates[i] = candidates[best];
                     candidates[best] = tmp;
+                    int32_t ptmp = priorities[i];
+                    priorities[i] = priorities[best];
+                    priorities[best] = ptmp;
                 }
             }
             for (int i = 0; i < candidate_count && connected < budget; i++) {
