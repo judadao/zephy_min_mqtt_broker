@@ -317,9 +317,9 @@ int topic_unsubscribe(struct client *c, const char *filter)
 {
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
     int old_count;
-    int new_count;
     uint8_t old_max_qos;
-    uint8_t new_max_qos;
+    uint8_t new_max_qos = 0;
+    uint8_t removed_qos = 0;
     int notify_unsub = 0;
     int notify_sub = 0;
 #endif
@@ -333,6 +333,9 @@ int topic_unsubscribe(struct client *c, const char *filter)
             strcmp(subs[i].filter, filter) == 0) {
             int was_exact = subs[i].is_exact;
 
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+            removed_qos = subs[i].qos;
+#endif
             if (was_exact) {
                 exact_list_remove_locked(i);
             } else {
@@ -340,9 +343,15 @@ int topic_unsubscribe(struct client *c, const char *filter)
             }
             subs[i].in_use = 0;
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            new_count = filter_stats_locked(filter, &new_max_qos);
-            notify_unsub = (old_count > 0 && new_count == 0);
-            notify_sub = (new_count > 0 && new_max_qos != old_max_qos);
+            notify_unsub = (old_count == 1);
+            if (!notify_unsub) {
+                if (removed_qos < old_max_qos) {
+                    new_max_qos = old_max_qos; /* max slot not removed */
+                } else {
+                    (void)filter_stats_locked(filter, &new_max_qos);
+                    notify_sub = (new_max_qos != old_max_qos);
+                }
+            }
 #endif
             break;
         }
