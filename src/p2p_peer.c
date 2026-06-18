@@ -297,10 +297,10 @@ static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE
     return 0;
 }
 
-static void p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
-                                                  const uint8_t *frame,
-                                                  uint16_t frame_len,
-                                                  const uint8_t *exclude_node_id)
+static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
+                                                 const uint8_t *frame,
+                                                 uint16_t frame_len,
+                                                 const uint8_t *exclude_node_id)
 {
     uint8_t next_hops[P2P_PEER_MAX][P2P_NODE_ID_LEN];
     int next_hop_count;
@@ -310,7 +310,7 @@ static void p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
     if (next_hop_count <= 0) {
-        return;
+        return 0;
     }
 
     for (int i = 0; i < next_hop_count; i++) {
@@ -319,6 +319,30 @@ static void p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
 #ifdef P2P_BENCH_TRACE
     LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
 #endif
+    return sent;
+}
+
+/*
+ * Last-resort for leaf nodes: flood the prebuilt frame to all connected peers.
+ * Routers receiving it will route via their subscription tables.
+ * The seen-cache prevents redelivery loops.
+ */
+static void flood_publish_to_connected_peers(const uint8_t *frame, uint16_t frame_len,
+                                             const uint8_t *exclude_node_id)
+{
+    plat_mutex_lock(&peer_lock);
+    for (int i = 0; i < P2P_PEER_MAX; i++) {
+        if (!conns[i].connected) {
+            continue;
+        }
+        if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
+            continue;
+        }
+        plat_mutex_lock(&send_locks[i]);
+        (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
+        plat_mutex_unlock(&send_locks[i]);
+    }
+    plat_mutex_unlock(&peer_lock);
 }
 
 static int send_sub_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
@@ -1047,7 +1071,7 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
         return;
     }
-    p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, exclude_node_id);
+    (void)p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, exclude_node_id);
 }
 
 void p2p_publish_from_local(const mqtt_publish_t *pub)
@@ -1076,7 +1100,12 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
         p2p_router_publish(&msg, NULL);
     } else {
         if (!send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len)) {
-            p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL);
+            /* Direct path to shard owner unavailable; try route table. */
+            if (!p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL)) {
+                /* No routes (leaf with empty table): flood to all connected peers.
+                 * They will route via their own subscription tables. */
+                flood_publish_to_connected_peers(frame, frame_len, NULL);
+            }
         }
     }
 }
