@@ -248,6 +248,11 @@ P2P publish routing uses next-hop subscription state, so routers forward only to
 peers that lead to matching subscribers instead of broadcasting every publish to
 all router peers.
 
+For the evaluation matrix that focuses on `1` vs `5` vs `10` ESP32-like brokers,
+plus node-down and restart faults, use:
+
+[`docs/mesh_test_matrix.md`](docs/mesh_test_matrix.md)
+
 ---
 
 ## mqtt_cli Reference

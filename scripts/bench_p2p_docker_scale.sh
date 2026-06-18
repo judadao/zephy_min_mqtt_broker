@@ -45,6 +45,12 @@ IP_PREFIX="${IP_PREFIX:-172.31.1}"
 WAIT_MQTT_TIMEOUT_SEC="${WAIT_MQTT_TIMEOUT_SEC:-30}"
 KEEP_CONTAINERS_ON_EXIT="${KEEP_CONTAINERS_ON_EXIT:-0}"
 LOADGEN_IN_DOCKER="${LOADGEN_IN_DOCKER:-1}"
+FAIL_NODE_INDEX="${FAIL_NODE_INDEX:-}"
+FAIL_ACTION="${FAIL_ACTION:-kill}"
+FAIL_AFTER_SEC="${FAIL_AFTER_SEC:-0}"
+FAIL_RECOVER_AFTER_SEC="${FAIL_RECOVER_AFTER_SEC:-0}"
+FAIL_BROKER_COUNT="${FAIL_BROKER_COUNT:-}"
+FAIL_JOB_PIDS=""
 
 if [ "$ESP32_PROFILE" -eq 1 ]; then
     STRICT_ESP32=1
@@ -66,6 +72,10 @@ _cleanup() {
     if [ "$KEEP_CONTAINERS_ON_EXIT" -eq 1 ]; then
         return
     fi
+    for pid in $FAIL_JOB_PIDS; do
+        kill "$pid" >/dev/null 2>&1 || true
+    done
+    FAIL_JOB_PIDS=""
     for name in $CONTAINERS; do
         docker rm -f "$name" >/dev/null 2>&1 || true
     done
@@ -194,6 +204,40 @@ _collect_logs() {
     for name in $CONTAINERS; do
         docker logs "$name" > "$OUT/logs_$scenario/$name.log" 2>&1 || true
     done
+}
+
+_schedule_failure() {
+    local scenario="$1"
+    local count="$2"
+    local target_idx="$3"
+    local action="$4"
+    local after_sec="$5"
+    local recover_after_sec="$6"
+
+    if [ -z "$target_idx" ] || [ "$after_sec" -le 0 ]; then
+        return
+    fi
+    if [ -n "$FAIL_BROKER_COUNT" ] && [ "$FAIL_BROKER_COUNT" -ne "$count" ]; then
+        return
+    fi
+    if [ "$target_idx" -lt 0 ] || [ "$target_idx" -ge "$count" ]; then
+        return
+    fi
+
+    local name="mqtt-p2p-${scenario}-${target_idx}"
+    (
+        sleep "$after_sec"
+        if [ "$action" = "restart" ]; then
+            docker restart "$name" >/dev/null 2>&1 || true
+        else
+            docker kill "$name" >/dev/null 2>&1 || true
+            if [ "$recover_after_sec" -gt 0 ]; then
+                sleep "$recover_after_sec"
+                docker start "$name" >/dev/null 2>&1 || true
+            fi
+        fi
+    ) &
+    FAIL_JOB_PIDS="$FAIL_JOB_PIDS $!"
 }
 
 _wait_for_mqtt_hosts() {
@@ -606,6 +650,10 @@ for bench_topics in $TOPIC_COUNTS; do
                 echo "[fail] broker_count=$count MQTT hosts not ready: $missing" >&2
                 exit 1
             fi
+
+            _schedule_failure "${scenario}_${count}" "$count" \
+                "$FAIL_NODE_INDEX" "$FAIL_ACTION" "$FAIL_AFTER_SEC" \
+                "$FAIL_RECOVER_AFTER_SEC"
 
             line="$(_run_python_load "$hosts_csv" "$bench_topics" "$bench_messages" \
                                       "$TARGET_P95_MS" "$SYNC_SETTLE_SEC")"
