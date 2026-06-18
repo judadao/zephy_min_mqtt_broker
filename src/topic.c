@@ -15,6 +15,9 @@ typedef struct {
     char           filter[MQTT_TOPIC_MAX];
     uint8_t        qos;
     uint8_t        in_use;
+    int            exact_next;
+    int            wildcard_next;
+    uint8_t        is_exact;
 } sub_entry_t;
 
 typedef struct {
@@ -27,7 +30,66 @@ typedef struct {
 
 static sub_entry_t    subs[TOPIC_MAX_SUBS];
 static retain_entry_t retains[TOPIC_RETAIN_MAX];
+static int exact_heads[TOPIC_MAX_SUBS];
+static int wildcard_head;
 PLAT_MUTEX_DEFINE(topic_lock);
+
+static uint32_t topic_hash(const char *s)
+{
+    uint32_t hash = 2166136261u;
+
+    while (*s) {
+        hash ^= (uint8_t)*s++;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static int filter_is_exact_local(const char *filter)
+{
+    return strchr(filter, '+') == NULL && strchr(filter, '#') == NULL;
+}
+
+static void exact_list_insert_locked(int slot)
+{
+    uint32_t bucket = topic_hash(subs[slot].filter) % TOPIC_MAX_SUBS;
+
+    subs[slot].exact_next = exact_heads[bucket];
+    exact_heads[bucket] = slot;
+}
+
+static void wildcard_list_insert_locked(int slot)
+{
+    subs[slot].wildcard_next = wildcard_head;
+    wildcard_head = slot;
+}
+
+static void exact_list_remove_locked(int slot)
+{
+    uint32_t bucket = topic_hash(subs[slot].filter) % TOPIC_MAX_SUBS;
+    int *link = &exact_heads[bucket];
+
+    while (*link >= 0) {
+        if (*link == slot) {
+            *link = subs[slot].exact_next;
+            return;
+        }
+        link = &subs[*link].exact_next;
+    }
+}
+
+static void wildcard_list_remove_locked(int slot)
+{
+    int *link = &wildcard_head;
+
+    while (*link >= 0) {
+        if (*link == slot) {
+            *link = subs[slot].wildcard_next;
+            return;
+        }
+        link = &subs[*link].wildcard_next;
+    }
+}
 
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
 static int filter_stats_locked(const char *filter, uint8_t *max_qos)
@@ -102,6 +164,10 @@ void topic_init(void)
 {
     memset(subs,    0, sizeof(subs));
     memset(retains, 0, sizeof(retains));
+    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+        exact_heads[i] = -1;
+    }
+    wildcard_head = -1;
 }
 
 /* return 1 if filter is a valid MQTT topic filter (MQTT 3.1.1 §4.7.1) */
@@ -211,6 +277,12 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             strncpy(subs[i].filter, filter, sizeof(subs[i].filter) - 1);
             subs[i].qos    = qos;
             subs[i].in_use = 1;
+            subs[i].is_exact = (uint8_t)filter_is_exact_local(filter);
+            if (subs[i].is_exact) {
+                exact_list_insert_locked(i);
+            } else {
+                wildcard_list_insert_locked(i);
+            }
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
             (void)filter_stats_locked(filter, &new_max_qos);
             notify_sub = (old_count == 0 || new_max_qos != old_max_qos);
@@ -247,6 +319,13 @@ int topic_unsubscribe(struct client *c, const char *filter)
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c &&
             strcmp(subs[i].filter, filter) == 0) {
+            int was_exact = subs[i].is_exact;
+
+            if (was_exact) {
+                exact_list_remove_locked(i);
+            } else {
+                wildcard_list_remove_locked(i);
+            }
             subs[i].in_use = 0;
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
             new_count = filter_stats_locked(filter, &new_max_qos);
@@ -285,6 +364,11 @@ void topic_unsubscribe_all(struct client *c)
             if (subs[i].in_use && subs[i].client == c) {
                 strncpy(removed, subs[i].filter, sizeof(removed) - 1);
                 old_count = filter_stats_locked(removed, &old_max_qos);
+                if (subs[i].is_exact) {
+                    exact_list_remove_locked(i);
+                } else {
+                    wildcard_list_remove_locked(i);
+                }
                 subs[i].in_use = 0;
                 new_count = filter_stats_locked(removed, &new_max_qos);
                 notify_unsub = (old_count > 0 && new_count == 0);
@@ -360,37 +444,102 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 
     /* fan-out to matching subscribers */
     plat_mutex_lock(&topic_lock);
-    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
-        if (!subs[i].in_use) {
-            continue;
-        }
-        if (!topic_match(subs[i].filter, pub->topic)) {
-            continue;
-        }
+    uint32_t bucket = topic_hash(pub->topic) % TOPIC_MAX_SUBS;
+    if (pub->qos == 0) {
+        client_t *targets[TOPIC_MAX_SUBS];
+        int target_count = 0;
+        uint8_t shared_buf[MQTT_MAX_PACKET_SIZE + 8];
+        mqtt_publish_t shared = *pub;
+        int shared_len;
 
-        mqtt_publish_t out = *pub;
-        out.retain = 0; /* never forward retain flag to subscribers */
-        out.qos    = out.qos < subs[i].qos ? out.qos : subs[i].qos;
-        if (out.qos > 0) {
-            if (++subs[i].client->next_packet_id == 0) {
-                ++subs[i].client->next_packet_id; /* skip 0, invalid per spec */
+        shared.retain = 0;
+        shared.packet_id = 0;
+        shared_len = packet_build_publish(&shared, shared_buf, sizeof(shared_buf));
+        if (shared_len > 0) {
+            for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
+                if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
+                    continue;
+                }
+                targets[target_count++] = subs[idx].client;
             }
-            out.packet_id = subs[i].client->next_packet_id;
+            for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
+                if (!subs[idx].in_use) {
+                    continue;
+                }
+                if (!topic_match(subs[idx].filter, pub->topic)) {
+                    continue;
+                }
+                targets[target_count++] = subs[idx].client;
+            }
+            plat_mutex_unlock(&topic_lock);
+
+            for (int i = 0; i < target_count; i++) {
+                client_send(targets[i], shared_buf, (size_t)shared_len);
+            }
         } else {
-            out.packet_id = 0;
+            plat_mutex_unlock(&topic_lock);
         }
+    } else {
+        for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
+            if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
+                continue;
+            }
 
-        uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
-        int     len = packet_build_publish(&out, buf, sizeof(buf));
-        if (len > 0) {
-            client_send(subs[i].client, buf, (size_t)len);
+            mqtt_publish_t out = *pub;
+            out.retain = 0; /* never forward retain flag to subscribers */
+            out.qos    = out.qos < subs[idx].qos ? out.qos : subs[idx].qos;
             if (out.qos > 0) {
-                client_inflight_store(subs[i].client, out.packet_id,
-                                      buf, (uint16_t)len, out.qos);
+                if (++subs[idx].client->next_packet_id == 0) {
+                    ++subs[idx].client->next_packet_id; /* skip 0, invalid per spec */
+                }
+                out.packet_id = subs[idx].client->next_packet_id;
+            } else {
+                out.packet_id = 0;
+            }
+
+            uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
+            int     len = packet_build_publish(&out, buf, sizeof(buf));
+            if (len > 0) {
+                client_send(subs[idx].client, buf, (size_t)len);
+                if (out.qos > 0) {
+                    client_inflight_store(subs[idx].client, out.packet_id,
+                                          buf, (uint16_t)len, out.qos);
+                }
             }
         }
+
+        for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
+            if (!subs[idx].in_use) {
+                continue;
+            }
+            if (!topic_match(subs[idx].filter, pub->topic)) {
+                continue;
+            }
+
+            mqtt_publish_t out = *pub;
+            out.retain = 0; /* never forward retain flag to subscribers */
+            out.qos    = out.qos < subs[idx].qos ? out.qos : subs[idx].qos;
+            if (out.qos > 0) {
+                if (++subs[idx].client->next_packet_id == 0) {
+                    ++subs[idx].client->next_packet_id; /* skip 0, invalid per spec */
+                }
+                out.packet_id = subs[idx].client->next_packet_id;
+            } else {
+                out.packet_id = 0;
+            }
+
+            uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
+            int     len = packet_build_publish(&out, buf, sizeof(buf));
+            if (len > 0) {
+                client_send(subs[idx].client, buf, (size_t)len);
+                if (out.qos > 0) {
+                    client_inflight_store(subs[idx].client, out.packet_id,
+                                          buf, (uint16_t)len, out.qos);
+                }
+            }
+        }
+        plat_mutex_unlock(&topic_lock);
     }
-    plat_mutex_unlock(&topic_lock);
 
     /* queue for offline persistent-session subscribers (QoS 0 skipped inside) */
     session_offline_publish(pub, topic_match);

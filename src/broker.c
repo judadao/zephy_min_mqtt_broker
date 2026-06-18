@@ -6,6 +6,7 @@
 
 #include "broker.h"
 #include "client.h"
+#include "p2p.h"
 #include "topic.h"
 #include "session.h"
 #include "packet.h"
@@ -18,11 +19,14 @@ static void configure_client_socket(int fd)
 {
 #ifndef __ZEPHYR__
     int one = 1;
+    int buf = 131072;
 
     (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 #ifdef TCP_QUICKACK
     (void)plat_setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &one, sizeof(one));
 #endif
+    (void)plat_setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
+    (void)plat_setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
 #else
     ARG_UNUSED(fd);
 #endif
@@ -37,6 +41,7 @@ int broker_init(void)
 
     topic_init();
     session_init();
+    p2p_router_init();
 
     listen_fd = plat_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listen_fd < 0) {

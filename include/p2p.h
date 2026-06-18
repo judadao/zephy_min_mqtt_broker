@@ -131,6 +131,7 @@ int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
 int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
                                          const char *topic);
 int p2p_router_stats(p2p_router_stats_t *out);
+void p2p_router_init(void);
 int p2p_router_find_next_hops(const char *topic,
                               const uint8_t *exclude_node_id,
                               uint8_t out[][P2P_NODE_ID_LEN],

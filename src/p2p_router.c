@@ -11,7 +11,7 @@ LOG_MODULE_REGISTER(mqtt_p2p_router, LOG_LEVEL_INF);
 #endif
 #else
 #ifndef P2P_REMOTE_SUBS_PER_NODE
-#define P2P_REMOTE_SUBS_PER_NODE 16
+#define P2P_REMOTE_SUBS_PER_NODE 32
 #endif
 #endif
 
@@ -92,6 +92,10 @@ static uint32_t hash_filter(const char *filter)
     return hash;
 }
 
+void p2p_router_init(void)
+{
+}
+
 static void exact_route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                       const uint8_t next_hop_id[P2P_NODE_ID_LEN],
                                       const char *filter)
@@ -121,7 +125,6 @@ static void exact_route_upsert_locked(const uint8_t owner_id[P2P_NODE_ID_LEN],
             free_route = route;
         }
     }
-
     if (free_route) {
         memset(free_route, 0, sizeof(*free_route));
         memcpy(free_route->owner_id, owner_id, P2P_NODE_ID_LEN);
