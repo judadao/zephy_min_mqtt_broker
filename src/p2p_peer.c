@@ -509,8 +509,13 @@ static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
 #endif
     topic_publish_remote(&pub);
 
-    if (p2p_election_role() == P2P_ROLE_ROUTER &&
-        p2p_router_next_hop_has_remote_match(c->node_id, msg->topic)) {
+    if (p2p_election_role() == P2P_ROLE_ROUTER) {
+        /*
+         * Do not tie relay eligibility to the peer that delivered the publish.
+         * In a mesh, the route that learned the subscription and the route
+         * that delivered the publish are often different. Forwarding from the
+         * current router's route table keeps multi-hop delivery alive.
+         */
         p2p_router_publish(msg, c->node_id);
     }
 }

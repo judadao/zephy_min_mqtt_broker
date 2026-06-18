@@ -31,6 +31,7 @@ DISTRIBUTED_PUBLISHERS="${DISTRIBUTED_PUBLISHERS:-0}"
 SCALE_MESSAGES_BY_BROKER="${SCALE_MESSAGES_BY_BROKER:-0}"
 STRICT_ESP32="${STRICT_ESP32:-0}"
 ESP32_PROFILE="${ESP32_PROFILE:-0}"
+EXTRA_CFLAGS="${EXTRA_CFLAGS:-}"
 BROKER_DOCKER_CPUS="${BROKER_DOCKER_CPUS:-}"
 BROKER_DOCKER_PIDS_LIMIT="${BROKER_DOCKER_PIDS_LIMIT:-}"
 STARTUP_SEC="${STARTUP_SEC:-2}"
@@ -147,6 +148,7 @@ _build_broker() {
         -DP2P_PEER_MAX="$peer_max" \
         -DP2P_ROUTER_COUNT="$router_count" \
         -DP2P_REMOTE_SUBS_PER_NODE="$remote_slots_per_node" \
+        $EXTRA_CFLAGS \
         "$ROOT/src/broker.c" \
         "$ROOT/src/client.c" \
         "$ROOT/src/main.c" \

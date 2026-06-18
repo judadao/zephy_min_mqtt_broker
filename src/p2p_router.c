@@ -308,6 +308,7 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
     }
 
     if (id_is_zero(node->next_hop_id) ||
+        !id_equal(node->next_hop_id, next_hop_id) ||
         (next_is_direct && !id_equal(node->next_hop_id, owner_id))) {
         memcpy(node->next_hop_id, next_hop_id, P2P_NODE_ID_LEN);
         route_changed = 1;
