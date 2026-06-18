@@ -78,6 +78,17 @@ static int shard_cache_lookup(uint32_t topology_sig, const char *shard_key,
     return 0;
 }
 
+static void shard_cache_write(shard_owner_cache_t *slot, uint32_t topology_sig,
+                              const char *shard_key,
+                              const uint8_t owner_id[P2P_NODE_ID_LEN])
+{
+    slot->in_use = 1;
+    slot->topology_sig = topology_sig;
+    memcpy(slot->owner_id, owner_id, P2P_NODE_ID_LEN);
+    strncpy(slot->shard_key, shard_key, sizeof(slot->shard_key) - 1);
+    slot->shard_key[sizeof(slot->shard_key) - 1] = '\0';
+}
+
 static void shard_cache_store(uint32_t topology_sig, const char *shard_key,
                               const uint8_t owner_id[P2P_NODE_ID_LEN])
 {
@@ -88,22 +99,14 @@ static void shard_cache_store(uint32_t topology_sig, const char *shard_key,
 
         if (shard_cache_match(&owner_cache[idx], topology_sig, shard_key) ||
             !owner_cache[idx].in_use) {
-            owner_cache[idx].in_use = 1;
-            owner_cache[idx].topology_sig = topology_sig;
-            memcpy(owner_cache[idx].owner_id, owner_id, P2P_NODE_ID_LEN);
-            strncpy(owner_cache[idx].shard_key, shard_key,
-                    sizeof(owner_cache[idx].shard_key) - 1);
-            owner_cache[idx].shard_key[sizeof(owner_cache[idx].shard_key) - 1] = '\0';
+            shard_cache_write(&owner_cache[idx], topology_sig, shard_key, owner_id);
             return;
         }
     }
 
-    owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].in_use = 1;
-    owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].topology_sig = topology_sig;
-    memcpy(owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].owner_id, owner_id, P2P_NODE_ID_LEN);
-    strncpy(owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].shard_key, shard_key,
-            sizeof(owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].shard_key) - 1);
-    owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].shard_key[sizeof(owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE].shard_key) - 1] = '\0';
+    /* Table full: evict the home slot. */
+    shard_cache_write(&owner_cache[hash % P2P_SHARD_OWNER_CACHE_SIZE],
+                      topology_sig, shard_key, owner_id);
 }
 
 #ifndef __ZEPHYR__

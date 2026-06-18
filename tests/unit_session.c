@@ -323,6 +323,46 @@ static void test_drain_dup(void)
     CHECK("no-dup drain: DUP bit clear in frame", (stub_last_buf[0] & 0x08) == 0);
 }
 
+static void test_find_or_create(void)
+{
+    printf("\n--- session_find_or_create ---\n");
+    session_init();
+
+    /* Create via find_or_create — session does not exist yet */
+    uint8_t was_found = 99;
+    session_t *s = session_find_or_create("foc_new", &was_found);
+    CHECK("find_or_create creates new session",  s != NULL);
+    CHECK("was_found = 0 (new)",                 was_found == 0);
+    CHECK("client_id set",                       strcmp(s->client_id, "foc_new") == 0);
+    CHECK("in_use = 1",                          s->in_use == 1);
+
+    /* Find existing via find_or_create */
+    was_found = 99;
+    session_t *s2 = session_find_or_create("foc_new", &was_found);
+    CHECK("find_or_create finds existing",       s2 == s);
+    CHECK("was_found = 1 (found)",               was_found == 1);
+
+    /* NULL was_found — must not crash */
+    session_t *s3 = session_find_or_create("foc_new", NULL);
+    CHECK("NULL was_found: returns same pointer", s3 == s);
+
+    /* Different client — new session */
+    was_found = 99;
+    session_t *s4 = session_find_or_create("foc_other", &was_found);
+    CHECK("different client creates new session", s4 != NULL && s4 != s);
+    CHECK("different client was_found = 0",       was_found == 0);
+
+    /* Pool full — find_or_create for unknown client returns NULL */
+    session_init();
+    for (int i = 0; i < SESSION_MAX; i++) {
+        char id[32]; snprintf(id, sizeof(id), "full_%d", i);
+        session_find_or_create(id, NULL);
+    }
+    was_found = 99;
+    session_t *overflow = session_find_or_create("overflow_foc", &was_found);
+    CHECK("find_or_create returns NULL when pool full", overflow == NULL);
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────── */
 
 int main(void)
@@ -336,6 +376,7 @@ int main(void)
     test_offline_publish();
     test_drain();
     test_drain_dup();
+    test_find_or_create();
 
     printf("\n=== Results: %d passed, %d failed ===\n", pass_count, fail_count);
     return (fail_count > 0) ? 1 : 0;
