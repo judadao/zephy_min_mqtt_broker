@@ -58,7 +58,6 @@ PLAT_MUTEX_DEFINE(peer_lock);
 PLAT_MUTEX_DEFINE(seen_lock);
 static p2p_send_slot_t send_slots[P2P_PEER_MAX];
 PLAT_MUTEX_DEFINE(send_meta_lock);
-PLAT_MUTEX_DEFINE(send_lock);
 static plat_mutex_t send_locks[P2P_PEER_MAX];
 
 #ifdef __ZEPHYR__
@@ -225,13 +224,13 @@ static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
     return rc;
 }
 
-static int send_frame_locked(int fd, uint8_t type, const void *payload, uint16_t len)
+static int send_frame_to_slot(int slot, uint8_t type, const void *payload, uint16_t len)
 {
     int rc;
 
-    plat_mutex_lock(&send_lock);
-    rc = send_frame(fd, type, payload, len);
-    plat_mutex_unlock(&send_lock);
+    plat_mutex_lock(&send_locks[slot]);
+    rc = send_frame(send_slots[slot].fd, type, payload, len);
+    plat_mutex_unlock(&send_locks[slot]);
     return rc;
 }
 
@@ -314,11 +313,9 @@ static void p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
         return;
     }
 
-    plat_mutex_lock(&send_lock);
     for (int i = 0; i < next_hop_count; i++) {
         sent += send_prebuilt_publish_to_node_unlocked(next_hops[i], frame, frame_len);
     }
-    plat_mutex_unlock(&send_lock);
 #ifdef P2P_BENCH_TRACE
     LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
 #endif
@@ -456,7 +453,8 @@ static int send_hello(int fd)
     p2p_announce_t ann;
 
     p2p_election_build_announce(&ann);
-    return send_frame_locked(fd, P2P_HELLO, &ann, sizeof(ann));
+    /* Called before send_slot_update: only this thread uses fd here. */
+    return send_frame(fd, P2P_HELLO, &ann, sizeof(ann));
 }
 
 static void send_current_hello_to_peers(void)
@@ -466,9 +464,12 @@ static void send_current_hello_to_peers(void)
     p2p_election_build_announce(&ann);
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (conns[i].connected) {
-            (void)send_frame_locked(conns[i].fd, P2P_HELLO, &ann, sizeof(ann));
+        if (!conns[i].connected) {
+            continue;
         }
+        plat_mutex_lock(&send_locks[i]);
+        (void)send_frame(conns[i].fd, P2P_HELLO, &ann, sizeof(ann));
+        plat_mutex_unlock(&send_locks[i]);
     }
     plat_mutex_unlock(&peer_lock);
 }
@@ -620,6 +621,7 @@ static void advertise_local_subs_to(p2p_conn_t *c)
 {
     sub_snapshot_t subs[8];
     uint8_t self_id[P2P_NODE_ID_LEN];
+    int slot = conn_slot(c);
     int cursor = 0;
 
     if (c->role != P2P_ROLE_ROUTER) {
@@ -635,7 +637,7 @@ static void advertise_local_subs_to(p2p_conn_t *c)
             memcpy(msg.owner_id, self_id, P2P_NODE_ID_LEN);
             strncpy(msg.filter, subs[i].filter, sizeof(msg.filter) - 1);
             msg.qos = subs[i].qos;
-            (void)send_frame_locked(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
+            (void)send_frame_to_slot(slot, P2P_SUB_NOTIFY, &msg, sizeof(msg));
         }
     }
 }
@@ -995,7 +997,9 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
             continue;
         }
-        (void)send_frame_locked(conns[i].fd, type, msg, sizeof(*msg));
+        plat_mutex_lock(&send_locks[i]);
+        (void)send_frame(conns[i].fd, type, msg, sizeof(*msg));
+        plat_mutex_unlock(&send_locks[i]);
     }
     plat_mutex_unlock(&peer_lock);
 }
@@ -1012,13 +1016,9 @@ void p2p_local_subscribe(const char *filter, uint8_t qos)
     p2p_election_self_id(self_id);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
-        plat_mutex_lock(&send_lock);
         if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_SUB_NOTIFY)) {
-            plat_mutex_unlock(&send_lock);
             p2p_send_sub_to_routers(&msg, P2P_SUB_NOTIFY, NULL);
-            return;
         }
-        plat_mutex_unlock(&send_lock);
     }
 }
 
@@ -1033,13 +1033,9 @@ void p2p_local_unsubscribe(const char *filter)
     p2p_election_self_id(self_id);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
-        plat_mutex_lock(&send_lock);
         if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_UNSUB_NOTIFY)) {
-            plat_mutex_unlock(&send_lock);
             p2p_send_sub_to_routers(&msg, P2P_UNSUB_NOTIFY, NULL);
-            return;
         }
-        plat_mutex_unlock(&send_lock);
     }
 }
 
@@ -1079,34 +1075,20 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
         id_cmp(owner_id, self_id) == 0) {
         p2p_router_publish(&msg, NULL);
     } else {
-        plat_mutex_lock(&send_lock);
         if (!send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len)) {
-            plat_mutex_unlock(&send_lock);
             p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL);
-            return;
         }
-        plat_mutex_unlock(&send_lock);
     }
 }
 
 int p2p_send_publish_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
                              const p2p_publish_msg_t *msg)
 {
-    int rc;
-
-    plat_mutex_lock(&send_lock);
-    rc = send_publish_to_node_unlocked(node_id, msg);
-    plat_mutex_unlock(&send_lock);
-    return rc;
+    return send_publish_to_node_unlocked(node_id, msg);
 }
 
 int p2p_send_sub_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
                          const p2p_sub_msg_t *msg, uint8_t type)
 {
-    int rc;
-
-    plat_mutex_lock(&send_lock);
-    rc = send_sub_to_node_unlocked(node_id, msg, type);
-    plat_mutex_unlock(&send_lock);
-    return rc;
+    return send_sub_to_node_unlocked(node_id, msg, type);
 }
