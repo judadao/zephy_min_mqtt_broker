@@ -590,6 +590,9 @@ int topic_get_client_subs(struct client *c,
 
 void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
 {
+    struct { uint8_t buf[MQTT_MAX_PACKET_SIZE + 8]; int len; } pkts[TOPIC_RETAIN_MAX];
+    int npkts = 0;
+
     plat_mutex_lock(&topic_lock);
     for (int j = 0; j < TOPIC_RETAIN_MAX; j++) {
         if (!retains[j].in_use || !topic_match(filter, retains[j].topic)) {
@@ -601,11 +604,15 @@ void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
         pub.payload_len = retains[j].payload_len;
         pub.qos         = qos < retains[j].qos ? qos : retains[j].qos;
         pub.retain      = 1;
-        uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
-        int len = packet_build_publish(&pub, buf, sizeof(buf));
-        if (len > 0) {
-            client_send(c, buf, (size_t)len);
+        pkts[npkts].len = packet_build_publish(&pub, pkts[npkts].buf,
+                                               sizeof(pkts[npkts].buf));
+        if (pkts[npkts].len > 0) {
+            npkts++;
         }
     }
     plat_mutex_unlock(&topic_lock);
+
+    for (int i = 0; i < npkts; i++) {
+        client_send(c, pkts[i].buf, (size_t)pkts[i].len);
+    }
 }
