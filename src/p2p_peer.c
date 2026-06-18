@@ -815,9 +815,10 @@ static void connect_loop(void *p1, void *p2, void *p3)
 
         send_current_hello_to_peers();
 #ifdef __ZEPHYR__
-        k_sleep(K_MSEC(3000));
+        k_sleep(K_MSEC(P2P_CONNECT_MS));
 #else
-        struct timespec ts = { .tv_sec = 3, .tv_nsec = 0 };
+        struct timespec ts = { .tv_sec = P2P_CONNECT_MS / 1000, .tv_nsec = 0 };
+        ts.tv_nsec = (P2P_CONNECT_MS % 1000) * 1000000L;
         nanosleep(&ts, NULL);
 #endif
     }

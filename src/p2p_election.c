@@ -367,6 +367,16 @@ p2p_role_t p2p_election_role(void)
     return role;
 }
 
+uint32_t p2p_election_topology_sig(void)
+{
+    uint32_t sig;
+
+    plat_mutex_lock(&p2p_lock);
+    sig = st.topology_sig;
+    plat_mutex_unlock(&p2p_lock);
+    return sig;
+}
+
 int p2p_election_snapshot(p2p_peer_score_t *out, int max)
 {
     int n = 0;

@@ -9,6 +9,21 @@ LOG_MODULE_REGISTER(mqtt_p2p_shard, LOG_LEVEL_INF);
 #define P2P_SHARD_KEY_LEVELS 2
 #endif
 
+#ifndef P2P_SHARD_OWNER_CACHE_SIZE
+#define P2P_SHARD_OWNER_CACHE_SIZE 64
+#endif
+
+typedef struct {
+    uint8_t in_use;
+    uint32_t topology_sig;
+    char shard_key[MQTT_TOPIC_MAX];
+    uint8_t owner_id[P2P_NODE_ID_LEN];
+} shard_owner_cache_t;
+
+static shard_owner_cache_t owner_cache[P2P_SHARD_OWNER_CACHE_SIZE];
+static uint8_t owner_cache_pos;
+PLAT_MUTEX_DEFINE(shard_cache_lock);
+
 static int id_cmp(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, P2P_NODE_ID_LEN);
@@ -74,6 +89,7 @@ static int shard_owner_id_from_key(const char *shard_key, uint8_t out[P2P_NODE_I
     p2p_peer_score_t peers[P2P_PEER_MAX + 1];
     p2p_peer_score_t routers[P2P_PEER_MAX + 1];
     uint32_t hash = 2166136261u;
+    uint32_t topology_sig;
     int n;
     int router_count = 0;
 
@@ -85,6 +101,21 @@ static int shard_owner_id_from_key(const char *shard_key, uint8_t out[P2P_NODE_I
     if (!shard_key || shard_key[0] == '\0') {
         return 1;
     }
+
+    topology_sig = p2p_election_topology_sig();
+    plat_mutex_lock(&shard_cache_lock);
+    for (int i = 0; i < P2P_SHARD_OWNER_CACHE_SIZE; i++) {
+        if (!owner_cache[i].in_use) {
+            continue;
+        }
+        if (owner_cache[i].topology_sig == topology_sig &&
+            strcmp(owner_cache[i].shard_key, shard_key) == 0) {
+            memcpy(out, owner_cache[i].owner_id, P2P_NODE_ID_LEN);
+            plat_mutex_unlock(&shard_cache_lock);
+            return 1;
+        }
+    }
+    plat_mutex_unlock(&shard_cache_lock);
 
     n = p2p_election_snapshot(peers, P2P_PEER_MAX + 1);
     for (int i = 0; i < n; i++) {
@@ -109,6 +140,16 @@ static int shard_owner_id_from_key(const char *shard_key, uint8_t out[P2P_NODE_I
 
     hash = fnv1a32_update(hash, (const uint8_t *)shard_key, strlen(shard_key));
     memcpy(out, routers[hash % (uint32_t)router_count].node_id, P2P_NODE_ID_LEN);
+
+    plat_mutex_lock(&shard_cache_lock);
+    memcpy(owner_cache[owner_cache_pos].owner_id, out, P2P_NODE_ID_LEN);
+    owner_cache[owner_cache_pos].topology_sig = topology_sig;
+    strncpy(owner_cache[owner_cache_pos].shard_key, shard_key,
+            sizeof(owner_cache[owner_cache_pos].shard_key) - 1);
+    owner_cache[owner_cache_pos].shard_key[sizeof(owner_cache[owner_cache_pos].shard_key) - 1] = '\0';
+    owner_cache[owner_cache_pos].in_use = 1;
+    owner_cache_pos = (uint8_t)((owner_cache_pos + 1) % P2P_SHARD_OWNER_CACHE_SIZE);
+    plat_mutex_unlock(&shard_cache_lock);
     return 1;
 }
 

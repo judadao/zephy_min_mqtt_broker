@@ -24,6 +24,9 @@
 #ifndef P2P_ANNOUNCE_MS
 #define P2P_ANNOUNCE_MS       5000
 #endif
+#ifndef P2P_CONNECT_MS
+#define P2P_CONNECT_MS        3000
+#endif
 #ifndef P2P_PEER_TIMEOUT_MS
 #define P2P_PEER_TIMEOUT_MS   15000
 #endif
@@ -111,6 +114,7 @@ void p2p_election_update_self(void);
 void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr);
 void p2p_election_record_publish(void);
 p2p_role_t p2p_election_role(void);
+uint32_t p2p_election_topology_sig(void);
 int p2p_election_snapshot(p2p_peer_score_t *out, int max);
 void p2p_election_build_announce(p2p_announce_t *out);
 void p2p_election_self_id(uint8_t out[P2P_NODE_ID_LEN]);
