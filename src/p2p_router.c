@@ -426,6 +426,41 @@ int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_L
     return match;
 }
 
+int p2p_router_stats(p2p_router_stats_t *out)
+{
+    p2p_router_stats_t stats = {0};
+
+    if (!out) {
+        return 0;
+    }
+
+    plat_mutex_lock(&router_lock);
+    for (int i = 0; i <= P2P_PEER_MAX; i++) {
+        if (!remote_nodes[i].in_use) {
+            continue;
+        }
+        stats.remote_nodes++;
+        for (int j = 0; j < P2P_REMOTE_SUBS_PER_NODE; j++) {
+            if (!remote_nodes[i].subs[j].in_use) {
+                continue;
+            }
+            stats.remote_subs++;
+        }
+    }
+    for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX; i++) {
+        if (exact_routes[i].in_use == P2P_EXACT_ROUTE_USED) {
+            stats.exact_routes++;
+        }
+        if (wildcard_routes[i].in_use) {
+            stats.wildcard_routes++;
+        }
+    }
+    plat_mutex_unlock(&router_lock);
+
+    *out = stats;
+    return 1;
+}
+
 int p2p_router_find_next_hops(const char *topic,
                               const uint8_t *exclude_node_id,
                               uint8_t out[][P2P_NODE_ID_LEN],

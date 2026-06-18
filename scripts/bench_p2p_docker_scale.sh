@@ -22,6 +22,7 @@ SENSOR_CONNECTIONS="${SENSOR_CONNECTIONS:-0}"
 SENSOR_WORKERS="${SENSOR_WORKERS:-64}"
 MQTT_MAX_CLIENTS_BENCH="${MQTT_MAX_CLIENTS_BENCH:-512}"
 P2P_PEER_MAX_BENCH="${P2P_PEER_MAX_BENCH:-128}"
+ROUTER_COUNT="${ROUTER_COUNT:-0}"
 STATIC_SEED_FANOUT="${STATIC_SEED_FANOUT:-10}"
 STARTUP_SEC="${STARTUP_SEC:-2}"
 SYNC_SETTLE_SEC="${SYNC_SETTLE_SEC:-5}"
@@ -529,7 +530,8 @@ for bench_topics in $TOPIC_COUNTS; do
             peer_max="$P2P_PEER_MAX_BENCH"
             [ "$peer_max" -lt "$STATIC_SEED_FANOUT" ] && peer_max="$STATIC_SEED_FANOUT"
             [ "$peer_max" -lt 10 ] && peer_max=10
-            router_count="$count"
+            router_count="$ROUTER_COUNT"
+            [ "$router_count" -gt "$count" ] && router_count="$count"
 
             bin="$OUT/broker_${scenario}_${count}"
             _build_broker "$bin" "$topic_slots" "$remote_slots_per_node" \

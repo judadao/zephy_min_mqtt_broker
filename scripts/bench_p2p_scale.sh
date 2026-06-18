@@ -20,9 +20,9 @@
 # instead of auto-raising it to the tested broker count. Use
 # P2P_PEER_MAX_BENCH=5 or 10 to compare ESP32-like peer budgets. By default,
 # MQTT_MAX_CLIENTS stays 8 while P2P_PEER_MAX is kept at least 10 and is
-# auto-raised to count-1 for larger tests. ROUTER_COUNT=0 means every broker
-# in that test round is a router, which keeps the benchmark focused on network
-# throughput instead of transient router-election convergence.
+# auto-raised to count-1 for larger tests. ROUTER_COUNT=0 enables the
+# reward-driven dynamic router budget search; set ROUTER_COUNT=N to force a
+# fixed router budget in a given round.
 #
 # MOSQUITTO_BENCH=1 runs a single local mosquitto instance with the same load
 # before the mqtt_min_broker rounds, so the output can compare both
@@ -650,7 +650,6 @@ for bench_topics in $TOPIC_COUNTS; do
             topic_slots=$((per_broker_subs + 32))
             remote_slots_per_node=$((per_broker_subs + 32))
             router_count="$ROUTER_COUNT"
-            [ "$router_count" -eq 0 ] && router_count="$count"
             [ "$router_count" -gt "$count" ] && router_count="$count"
 
             if [ "$STRICT_ESP32" -eq 1 ]; then

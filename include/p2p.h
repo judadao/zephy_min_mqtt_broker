@@ -69,6 +69,13 @@ typedef struct {
 } p2p_peer_score_t;
 
 typedef struct {
+    uint8_t remote_nodes;
+    uint16_t remote_subs;
+    uint16_t exact_routes;
+    uint16_t wildcard_routes;
+} p2p_router_stats_t;
+
+typedef struct {
     uint8_t  owner_id[P2P_NODE_ID_LEN];
     char     filter[MQTT_TOPIC_MAX];
     uint8_t  qos;
@@ -113,6 +120,7 @@ int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
                                       const char *topic);
 int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
                                          const char *topic);
+int p2p_router_stats(p2p_router_stats_t *out);
 int p2p_router_find_next_hops(const char *topic,
                               const uint8_t *exclude_node_id,
                               uint8_t out[][P2P_NODE_ID_LEN],

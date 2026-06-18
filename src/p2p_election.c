@@ -1,4 +1,5 @@
 #include "platform/platform.h"
+#include <limits.h>
 #include <string.h>
 
 #include "broker.h"
@@ -32,23 +33,65 @@ static int score_before(const p2p_peer_score_t *a, const p2p_peer_score_t *b)
     return id_cmp(a->node_id, b->node_id) < 0;
 }
 
+static int ilog2_floor(int n)
+{
+    int r = 0;
+
+    while ((1 << (r + 1)) <= n) {
+        r++;
+    }
+    return r;
+}
+
 static int router_target_count(int active_nodes)
 {
+    p2p_router_stats_t stats = {0};
+    int free_slots = client_free_slots();
+    int publish_pressure;
+    int remote_pressure;
+    int best_count = 1;
+    int best_reward = INT_MIN;
+
     if (active_nodes <= 1) {
         return active_nodes;
     }
 #if P2P_ROUTER_COUNT > 0
     return P2P_ROUTER_COUNT < active_nodes ? P2P_ROUTER_COUNT : active_nodes;
 #else
-    int target = 1;
+    if (!p2p_router_stats(&stats)) {
+        stats.remote_nodes = 0;
+        stats.remote_subs = 0;
+        stats.exact_routes = 0;
+        stats.wildcard_routes = 0;
+    }
+    publish_pressure = st.publish_rate > 4000U ? 4000 : (int)st.publish_rate;
+    remote_pressure = (int)stats.remote_subs * 4 +
+                      (int)stats.exact_routes * 2 +
+                      (int)stats.wildcard_routes * 3 +
+                      (int)stats.remote_nodes * 6;
 
-    while ((target + 1) * (target + 1) <= active_nodes) {
-        target++;
+    for (int candidate = 1; candidate <= active_nodes; candidate++) {
+        int span = (active_nodes + candidate - 1) / candidate;
+        int reward;
+        int density_bonus;
+        int connectivity_bonus;
+        int cost;
+
+        density_bonus = (remote_pressure * candidate) / active_nodes;
+        connectivity_bonus = candidate > 1 ? ilog2_floor(candidate) * 10 : 0;
+        cost = (candidate * 14) + (span * span * 3) + (active_nodes * 2);
+        reward = (free_slots * 8) + (publish_pressure / 8) +
+                 density_bonus + connectivity_bonus - cost;
+        if (reward > best_reward ||
+            (reward == best_reward && candidate < best_count)) {
+            best_reward = reward;
+            best_count = candidate;
+        }
     }
-    if (target < 2) {
-        target = 2;
+    if (best_count < 1) {
+        best_count = 1;
     }
-    return target < active_nodes ? target : active_nodes;
+    return best_count;
 #endif
 }
 

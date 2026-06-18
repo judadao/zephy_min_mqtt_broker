@@ -93,13 +93,20 @@ flowchart TD
     E -->|no| L[LEAF: attach to router nodes]
 ```
 
-Score is intentionally simple and deterministic:
+Router selection is intentionally simple, deterministic, and reward-driven:
 
 ```text
 score = free_client_slots * 10
       + uptime_bonus
       - active_peer_count * 5
 ```
+
+If `P2P_ROUTER_COUNT=0`, the router budget is not fixed to a single formula. The
+node evaluates a small set of candidate router counts against live pressure
+signals from remote subscriptions, publish rate, and client headroom, then
+chooses the highest-reward option. This is a lightweight online search inspired
+by recent work on RL/bandit topology optimization and reconfigurable
+datacenter fabrics.
 
 On Zephyr, `P2P_PEER_MAX` defaults lower than Linux to fit ESP32 RAM.
 
