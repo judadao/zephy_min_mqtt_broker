@@ -31,7 +31,7 @@ TARGET_P95_MS="${TARGET_P95_MS:-10}"
 mkdir -p "$OUT"
 RESULTS_FILE="$OUT/results.csv"
 : > "$RESULTS_FILE"
-echo "scenario,broker_count,received,lost,msg_per_sec,p95_ms,max_ms,pass_p95" | tee -a "$RESULTS_FILE"
+echo "scenario,broker_count,sent,received,lost,delivery_pct,msg_per_sec,p95_ms,max_ms,pass_p95" | tee -a "$RESULTS_FILE"
 
 run_case() {
     local scenario="$1"
@@ -69,7 +69,8 @@ run_case() {
     IFS=, read -r impl broker_count total_subs messages received lost setup_sec elapsed_sec msg_per_sec min_ms p50_ms p95_ms p99_ms max_ms pass_p95 <<EOF
 $line
 EOF
-    echo "$scenario,$broker_count,$received,$lost,$msg_per_sec,$p95_ms,$max_ms,$pass_p95" | tee -a "$RESULTS_FILE"
+    delivery_pct="$(awk -v r="$received" -v m="$messages" 'BEGIN { if (m > 0) printf "%.1f", (r * 100.0) / m; else print "0.0" }')"
+    echo "$scenario,$broker_count,$messages,$received,$lost,$delivery_pct,$msg_per_sec,$p95_ms,$max_ms,$pass_p95" | tee -a "$RESULTS_FILE"
 }
 
 run_case "single_1" \
