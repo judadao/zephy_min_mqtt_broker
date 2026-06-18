@@ -392,6 +392,11 @@ void topic_unsubscribe_all(struct client *c)
     plat_mutex_lock(&topic_lock);
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (subs[i].in_use && subs[i].client == c) {
+            if (subs[i].is_exact) {
+                exact_list_remove_locked(i);
+            } else {
+                wildcard_list_remove_locked(i);
+            }
             subs[i].in_use = 0;
         }
     }
