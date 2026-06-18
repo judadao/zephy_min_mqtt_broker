@@ -36,6 +36,9 @@ struct client; /* forward declaration — avoids pulling in client.h */
 void       session_init(void);
 session_t *session_find(const char *client_id);
 session_t *session_create(const char *client_id);
+/* Find existing session or create a new one in one lock+scan.
+ * Sets *was_found (if non-NULL) to 1 if found, 0 if created. */
+session_t *session_find_or_create(const char *client_id, uint8_t *was_found);
 void       session_delete(const char *client_id);
 
 /* save the client's current subscription list into the session */

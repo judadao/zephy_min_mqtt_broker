@@ -45,6 +45,39 @@ session_t *session_create(const char *client_id)
     return NULL;
 }
 
+session_t *session_find_or_create(const char *client_id, uint8_t *was_found)
+{
+    session_t *free_slot = NULL;
+
+    if (was_found) {
+        *was_found = 0;
+    }
+    plat_mutex_lock(&session_lock);
+    for (int i = 0; i < SESSION_MAX; i++) {
+        if (sessions[i].in_use) {
+            if (strcmp(sessions[i].client_id, client_id) == 0) {
+                plat_mutex_unlock(&session_lock);
+                if (was_found) {
+                    *was_found = 1;
+                }
+                return &sessions[i];
+            }
+        } else if (!free_slot) {
+            free_slot = &sessions[i];
+        }
+    }
+    if (free_slot) {
+        memset(free_slot, 0, sizeof(*free_slot));
+        strncpy(free_slot->client_id, client_id, sizeof(free_slot->client_id) - 1);
+        free_slot->in_use = 1;
+        plat_mutex_unlock(&session_lock);
+        LOG_DBG("session created for %s", client_id);
+        return free_slot;
+    }
+    plat_mutex_unlock(&session_lock);
+    return NULL;
+}
+
 void session_delete(const char *client_id)
 {
     plat_mutex_lock(&session_lock);

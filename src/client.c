@@ -127,10 +127,7 @@ void client_free(client_t *c)
         uint8_t qos[SESSION_SUB_MAX];
         uint8_t count = (uint8_t)topic_get_client_subs(c, filters, qos,
                                                         SESSION_SUB_MAX);
-        session_t *s = session_find(c->client_id);
-        if (!s) {
-            s = session_create(c->client_id);
-        }
+        session_t *s = session_find_or_create(c->client_id, NULL);
         if (s) {
             session_save_subs(s, (const char (*)[MQTT_TOPIC_MAX])filters,
                               qos, count);
@@ -582,12 +579,7 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
         /* MQTT 3.1.1 §3.1.2.4: clean_session=1 must discard any existing session */
         session_delete(conn.client_id);
     } else {
-        sess = session_find(conn.client_id);
-        if (sess) {
-            session_present = 1;
-        } else {
-            sess = session_create(conn.client_id);
-        }
+        sess = session_find_or_create(conn.client_id, &session_present);
     }
 
     len = packet_build_connack(session_present, CONNACK_ACCEPTED, resp, sizeof(resp));
