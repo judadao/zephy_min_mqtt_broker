@@ -110,6 +110,9 @@ datacenter fabrics.
 
 On Zephyr, `P2P_PEER_MAX` defaults lower than Linux to fit ESP32 RAM.
 
+The next step for the P2P mesh is a shard-based topic ownership model:
+[`docs/p2p_shard_model.md`](docs/p2p_shard_model.md).
+
 #### Subscription and publish routing
 
 Subscribers remain normal MQTT clients. The P2P layer only mirrors subscription intent between brokers.
