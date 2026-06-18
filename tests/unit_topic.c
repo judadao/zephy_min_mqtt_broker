@@ -172,6 +172,37 @@ static void test_unsubscribe_all(void)
     CHECK("client[1] still subscribed",                 n1 == 1);
 }
 
+/*
+ * Regression test: wildcard slot must be removed from the linked list on
+ * unsubscribe_all.  If not, re-using the same slot for a new wildcard sub
+ * creates a cycle (subs[slot].wildcard_next == slot) which causes an
+ * infinite loop in the QoS-0 fan-out.
+ */
+static void test_unsubscribe_all_wildcard_cycle(void)
+{
+    printf("\n--- topic_unsubscribe_all wildcard cycle regression ---\n");
+    topic_init();
+    clients_init();
+    stub_reset();
+
+    /* client[0] subscribes with a wildcard, then disconnects */
+    topic_subscribe(&clients[0], "sensor/+/temp", 0);
+    topic_unsubscribe_all(&clients[0]);
+
+    /* client[1] subscribes with another wildcard (may reuse the same slot) */
+    topic_subscribe(&clients[1], "home/#", 0);
+
+    /* publish to a matching topic — must complete without looping */
+    mqtt_publish_t pub = {0};
+    strncpy(pub.topic, "home/room/light", MQTT_TOPIC_MAX - 1);
+    pub.payload[0] = '1'; pub.payload_len = 1; pub.qos = 0;
+    stub_reset();
+    topic_publish(&pub);
+
+    CHECK("wildcard fan-out delivers exactly 1 message (no cycle)", stub_recv_count == 1);
+    CHECK("correct message delivered", stub_received("home/room/light", "1"));
+}
+
 static void test_retain_store_clear(void)
 {
     printf("\n--- retain store / clear ---\n");
@@ -497,6 +528,7 @@ int main(void)
     test_subscribe();
     test_unsubscribe();
     test_unsubscribe_all();
+    test_unsubscribe_all_wildcard_cycle();
     test_retain_store_clear();
     test_retain_overflow();
     test_subscribe_overflow();
