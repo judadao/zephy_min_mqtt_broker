@@ -293,6 +293,24 @@ static void test_subscribe_overflow(void)
     topic_unsubscribe(&clients[0], "c0/t0");
     rc = topic_subscribe(&clients[0], "overflow/topic", 0);
     CHECK("subscribe after unsubscribe succeeds", rc == 0);
+
+    /* Re-filling to capacity again */
+    topic_subscribe(&clients[0], "c0/t0", 0);
+
+    /* Re-subscribing an existing filter at capacity must succeed (update in place) */
+    rc = topic_subscribe(&clients[0], "overflow/topic", 1); /* update QoS */
+    CHECK("re-subscribe existing filter at capacity succeeds", rc == 0);
+
+    /* Verify QoS was updated */
+    char out[2][MQTT_TOPIC_MAX]; uint8_t oq[2];
+    int n = topic_get_client_subs(&clients[0], out, oq, 2);
+    int found_updated = 0;
+    for (int i = 0; i < n; i++) {
+        if (strcmp(out[i], "overflow/topic") == 0 && oq[i] == 1) {
+            found_updated = 1;
+        }
+    }
+    CHECK("re-subscribe at capacity updates QoS", found_updated);
 }
 
 static void test_fanout(void)
