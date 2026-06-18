@@ -251,10 +251,14 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
     old_count = filter_stats_locked(filter, &old_max_qos);
 #endif
 
-    /* update qos if already subscribed */
+    /* single pass: check for duplicate and note first free slot */
+    int free_slot = -1;
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
-        if (subs[i].in_use && subs[i].client == c &&
-            strcmp(subs[i].filter, filter) == 0) {
+        if (!subs[i].in_use) {
+            if (free_slot < 0) free_slot = i;
+            continue;
+        }
+        if (subs[i].client == c && strcmp(subs[i].filter, filter) == 0) {
             subs[i].qos = qos;
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
             (void)filter_stats_locked(filter, &new_max_qos);
@@ -270,31 +274,29 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
         }
     }
 
-    /* find free slot */
-    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
-        if (!subs[i].in_use) {
-            subs[i].client = c;
-            strncpy(subs[i].filter, filter, sizeof(subs[i].filter) - 1);
-            subs[i].qos    = qos;
-            subs[i].in_use = 1;
-            subs[i].is_exact = (uint8_t)filter_is_exact_local(filter);
-            if (subs[i].is_exact) {
-                exact_list_insert_locked(i);
-            } else {
-                wildcard_list_insert_locked(i);
-            }
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            (void)filter_stats_locked(filter, &new_max_qos);
-            notify_sub = (old_count == 0 || new_max_qos != old_max_qos);
-#endif
-            plat_mutex_unlock(&topic_lock);
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            if (notify_sub) {
-                p2p_local_subscribe(filter, new_max_qos);
-            }
-#endif
-            return 0;
+    if (free_slot >= 0) {
+        int i = free_slot;
+        subs[i].client   = c;
+        strncpy(subs[i].filter, filter, sizeof(subs[i].filter) - 1);
+        subs[i].qos      = qos;
+        subs[i].in_use   = 1;
+        subs[i].is_exact = (uint8_t)filter_is_exact_local(filter);
+        if (subs[i].is_exact) {
+            exact_list_insert_locked(i);
+        } else {
+            wildcard_list_insert_locked(i);
         }
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        (void)filter_stats_locked(filter, &new_max_qos);
+        notify_sub = (old_count == 0 || new_max_qos != old_max_qos);
+#endif
+        plat_mutex_unlock(&topic_lock);
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        if (notify_sub) {
+            p2p_local_subscribe(filter, new_max_qos);
+        }
+#endif
+        return 0;
     }
 
     plat_mutex_unlock(&topic_lock);
