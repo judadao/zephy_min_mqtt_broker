@@ -6,10 +6,12 @@
 
 #include "broker.h"
 #include "client.h"
-#include "p2p.h"
 #include "topic.h"
 #include "session.h"
 #include "packet.h"
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+#include "p2p.h"
+#endif
 
 LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
@@ -41,7 +43,9 @@ int broker_init(void)
 
     topic_init();
     session_init();
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
     p2p_router_init();
+#endif
 
     listen_fd = plat_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (listen_fd < 0) {
