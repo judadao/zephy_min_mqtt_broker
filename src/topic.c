@@ -240,48 +240,60 @@ static int topic_match(const char *filter, const char *topic)
 int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
 {
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    int old_count;
-    uint8_t old_max_qos;
+    uint8_t old_max_qos = 0;
     uint8_t new_max_qos;
-    uint8_t old_slot_qos = 0;
+    int old_count = 0;
     int notify_sub = 0;
 #endif
 
     plat_mutex_lock(&topic_lock);
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    old_count = filter_stats_locked(filter, &old_max_qos);
-#endif
 
-    /* single pass: check for duplicate and note first free slot */
+    /* Single pass: find existing slot for this client+filter, first free slot,
+     * and (for P2P) count all subscriptions to this filter with their max QoS. */
     int free_slot = -1;
+    int found_slot = -1;
+    uint8_t found_slot_qos = 0;
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (!subs[i].in_use) {
             if (free_slot < 0) free_slot = i;
             continue;
         }
-        if (subs[i].client == c && strcmp(subs[i].filter, filter) == 0) {
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            old_slot_qos = subs[i].qos;
-#endif
-            subs[i].qos = qos;
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            if (qos >= old_max_qos) {
-                new_max_qos = qos;
-            } else if (old_slot_qos < old_max_qos) {
-                new_max_qos = old_max_qos; /* slot wasn't the max; max unchanged */
-            } else {
-                (void)filter_stats_locked(filter, &new_max_qos); /* was max, lowered */
+        if (strcmp(subs[i].filter, filter) == 0) {
+            old_count++;
+            if (subs[i].qos > old_max_qos) old_max_qos = subs[i].qos;
+            if (subs[i].client == c) {
+                found_slot = i;
+                found_slot_qos = subs[i].qos;
             }
-            notify_sub = (new_max_qos != old_max_qos);
-#endif
-            plat_mutex_unlock(&topic_lock);
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            if (notify_sub) {
-                p2p_local_subscribe(filter, new_max_qos);
-            }
-#endif
-            return 0;
         }
+#else
+        if (subs[i].client == c && strcmp(subs[i].filter, filter) == 0) {
+            found_slot = i;
+            break;
+        }
+#endif
+    }
+
+    if (found_slot >= 0) {
+        subs[found_slot].qos = qos;
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        if (qos >= old_max_qos) {
+            new_max_qos = qos;
+        } else if (found_slot_qos < old_max_qos) {
+            new_max_qos = old_max_qos; /* slot wasn't the max; max unchanged */
+        } else {
+            (void)filter_stats_locked(filter, &new_max_qos); /* was max, lowered */
+        }
+        notify_sub = (new_max_qos != old_max_qos);
+#endif
+        plat_mutex_unlock(&topic_lock);
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        if (notify_sub) {
+            p2p_local_subscribe(filter, new_max_qos);
+        }
+#endif
+        return 0;
     }
 
     if (free_slot >= 0) {
@@ -316,45 +328,55 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
 int topic_unsubscribe(struct client *c, const char *filter)
 {
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    int old_count;
-    uint8_t old_max_qos;
+    uint8_t old_max_qos = 0;
     uint8_t new_max_qos = 0;
     uint8_t removed_qos = 0;
+    int old_count = 0;
     int notify_unsub = 0;
     int notify_sub = 0;
 #endif
 
     plat_mutex_lock(&topic_lock);
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    old_count = filter_stats_locked(filter, &old_max_qos);
-#endif
-    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
-        if (subs[i].in_use && subs[i].client == c &&
-            strcmp(subs[i].filter, filter) == 0) {
-            int was_exact = subs[i].is_exact;
 
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            removed_qos = subs[i].qos;
-#endif
-            if (was_exact) {
-                exact_list_remove_locked(i);
-            } else {
-                wildcard_list_remove_locked(i);
-            }
-            subs[i].in_use = 0;
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            notify_unsub = (old_count == 1);
-            if (!notify_unsub) {
-                if (removed_qos < old_max_qos) {
-                    new_max_qos = old_max_qos; /* max slot not removed */
-                } else {
-                    (void)filter_stats_locked(filter, &new_max_qos);
-                    notify_sub = (new_max_qos != old_max_qos);
-                }
-            }
-#endif
-            break;
+    /* Single pass: compute filter stats and locate the slot to remove. */
+    int target = -1;
+    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+        if (!subs[i].in_use || strcmp(subs[i].filter, filter) != 0) {
+            continue;
         }
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        old_count++;
+        if (subs[i].qos > old_max_qos) old_max_qos = subs[i].qos;
+#endif
+        if (subs[i].client == c) {
+            target = i;
+#if !defined(CONFIG_MQTT_P2P_DYNAMIC)
+            break;
+#endif
+        }
+    }
+
+    if (target >= 0) {
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        removed_qos = subs[target].qos;
+#endif
+        if (subs[target].is_exact) {
+            exact_list_remove_locked(target);
+        } else {
+            wildcard_list_remove_locked(target);
+        }
+        subs[target].in_use = 0;
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+        notify_unsub = (old_count == 1);
+        if (!notify_unsub) {
+            if (removed_qos < old_max_qos) {
+                new_max_qos = old_max_qos; /* max slot not removed */
+            } else {
+                (void)filter_stats_locked(filter, &new_max_qos);
+                notify_sub = (new_max_qos != old_max_qos);
+            }
+        }
+#endif
     }
     plat_mutex_unlock(&topic_lock);
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
