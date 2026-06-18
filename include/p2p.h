@@ -42,9 +42,6 @@
 #define P2P_SUB_NOTIFY   0x02
 #define P2P_UNSUB_NOTIFY 0x03
 #define P2P_PUBLISH      0x04
-#define P2P_SCORE_UPDATE 0x06
-#define P2P_REDIRECT     0x07
-#define P2P_SUB_SYNC     0x08
 
 typedef struct {
     uint8_t  type;
@@ -104,10 +101,6 @@ void p2p_local_subscribe(const char *filter, uint8_t qos);
 void p2p_local_unsubscribe(const char *filter);
 void p2p_resync_local_subscriptions(void);
 void p2p_publish_from_local(const mqtt_publish_t *pub);
-int p2p_send_publish_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
-                             const p2p_publish_msg_t *msg);
-int p2p_send_sub_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
-                         const p2p_sub_msg_t *msg, uint8_t type);
 void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                                   const uint8_t *exclude_node_id);
 void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
@@ -130,10 +123,6 @@ int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
 int p2p_router_remote_unsubscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                   const char *filter);
 void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN]);
-int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                      const char *topic);
-int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
-                                         const char *topic);
 int p2p_router_stats(p2p_router_stats_t *out);
 void p2p_router_init(void);
 int p2p_router_find_next_hops(const char *topic,

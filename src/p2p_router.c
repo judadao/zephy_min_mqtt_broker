@@ -383,53 +383,6 @@ void p2p_router_remove_node(const uint8_t owner_id[P2P_NODE_ID_LEN])
     plat_mutex_unlock(&router_lock);
 }
 
-int p2p_router_topic_has_remote_match(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                      const char *topic)
-{
-    remote_node_t *node;
-    int match = 0;
-
-    plat_mutex_lock(&router_lock);
-    node = find_node_locked(node_id, 0);
-    if (node) {
-        for (int i = 0; i < P2P_REMOTE_SUBS_PER_NODE; i++) {
-            if (node->subs[i].in_use &&
-                topic_match(node->subs[i].filter, topic)) {
-                match = 1;
-                break;
-            }
-        }
-    }
-    plat_mutex_unlock(&router_lock);
-    return match;
-}
-
-int p2p_router_next_hop_has_remote_match(const uint8_t next_hop_id[P2P_NODE_ID_LEN],
-                                         const char *topic)
-{
-    int match = 0;
-
-    plat_mutex_lock(&router_lock);
-    for (int i = 0; i <= P2P_PEER_MAX; i++) {
-        if (!remote_nodes[i].in_use ||
-            !id_equal(remote_nodes[i].next_hop_id, next_hop_id)) {
-            continue;
-        }
-        for (int j = 0; j < P2P_REMOTE_SUBS_PER_NODE; j++) {
-            if (remote_nodes[i].subs[j].in_use &&
-                topic_match(remote_nodes[i].subs[j].filter, topic)) {
-                match = 1;
-                break;
-            }
-        }
-        if (match) {
-            break;
-        }
-    }
-    plat_mutex_unlock(&router_lock);
-    return match;
-}
-
 int p2p_router_stats(p2p_router_stats_t *out)
 {
     p2p_router_stats_t stats = {0};

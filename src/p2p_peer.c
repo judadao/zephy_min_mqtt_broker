@@ -1106,14 +1106,3 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     }
 }
 
-int p2p_send_publish_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
-                             const p2p_publish_msg_t *msg)
-{
-    return send_publish_to_node_unlocked(node_id, msg);
-}
-
-int p2p_send_sub_to_node(const uint8_t node_id[P2P_NODE_ID_LEN],
-                         const p2p_sub_msg_t *msg, uint8_t type)
-{
-    return send_sub_to_node_unlocked(node_id, msg, type);
-}
