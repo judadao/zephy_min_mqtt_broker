@@ -533,19 +533,15 @@ static void handle_connect(client_t *c, const mqtt_packet_t *pkt)
     }
 
     /* MQTT 3.1.1 §4.7.3: will topic must not be empty or contain wildcards */
-    if (conn.has_will) {
-        size_t wlen = strlen(conn.will_topic);
-        if (wlen == 0 ||
-            memchr(conn.will_topic, '#', wlen) ||
-            memchr(conn.will_topic, '+', wlen)) {
-            LOG_WRN("client[%d] CONNECT invalid will topic '%s'",
-                    c->slot, conn.will_topic);
-            uint8_t rej[4];
-            int rlen = packet_build_connack(0, CONNACK_ID_REJECTED, rej, sizeof(rej));
-            if (rlen > 0) client_send(c, rej, (size_t)rlen);
-            c->state = CLIENT_STATE_DISCONNECTING;
-            return;
-        }
+    if (conn.has_will &&
+        (conn.will_topic[0] == '\0' || strpbrk(conn.will_topic, "#+"))) {
+        LOG_WRN("client[%d] CONNECT invalid will topic '%s'",
+                c->slot, conn.will_topic);
+        uint8_t rej[4];
+        int rlen = packet_build_connack(0, CONNACK_ID_REJECTED, rej, sizeof(rej));
+        if (rlen > 0) client_send(c, rej, (size_t)rlen);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
     }
 
     /* MQTT 3.1.1 §3.1.3.1: zero-length client ID with clean_session=0 is invalid */
@@ -629,13 +625,10 @@ static void handle_publish(client_t *c, const mqtt_packet_t *pkt)
 
     /* MQTT 3.1.1 §4.7.3: PUBLISH topic must not be empty and must not
      * contain wildcard characters '#' or '+'. (Null bytes rejected in read_str.) */
-    {
-        size_t tlen = strlen(pub.topic);
-        if (tlen == 0 || memchr(pub.topic, '#', tlen) || memchr(pub.topic, '+', tlen)) {
-            LOG_WRN("client[%d] PUBLISH invalid topic '%s' — closing", c->slot, pub.topic);
-            c->state = CLIENT_STATE_DISCONNECTING;
-            return;
-        }
+    if (pub.topic[0] == '\0' || strpbrk(pub.topic, "#+")) {
+        LOG_WRN("client[%d] PUBLISH invalid topic '%s' — closing", c->slot, pub.topic);
+        c->state = CLIENT_STATE_DISCONNECTING;
+        return;
     }
 
     /* MQTT 3.1.1 §2.3.1: packet identifier MUST NOT be 0 for QoS > 0 */
