@@ -499,6 +499,24 @@ int p2p_router_find_next_hops(const char *topic,
                 count++;
             }
         }
+        /* Also check wildcard routes: a remote subscriber on "sensors/#" must
+         * receive publishes to the exact topic "sensors/node1/temp". */
+        for (int i = 0; i < P2P_REMOTE_EXACT_ROUTE_MAX && count < max; i++) {
+            if (!wildcard_routes[i].in_use) {
+                continue;
+            }
+            if (exclude_node_id &&
+                id_equal(wildcard_routes[i].next_hop_id, exclude_node_id)) {
+                continue;
+            }
+            if (hop_in_list(out, count, wildcard_routes[i].next_hop_id)) {
+                continue;
+            }
+            if (topic_match(wildcard_routes[i].filter, topic)) {
+                memcpy(out[count], wildcard_routes[i].next_hop_id, P2P_NODE_ID_LEN);
+                count++;
+            }
+        }
         plat_mutex_unlock(&router_lock);
         return count;
     }

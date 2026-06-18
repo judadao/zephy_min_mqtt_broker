@@ -79,6 +79,8 @@ static int id_equal(const uint8_t *a, const uint8_t *b)
 }
 
 static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *except);
+static void send_sub_to_leaves(const p2p_sub_msg_t *msg, uint8_t type,
+                               const uint8_t *exclude_node_id);
 
 static int conn_slot(const p2p_conn_t *c)
 {
@@ -728,12 +730,16 @@ static void peer_loop(void *p1, void *p2, void *p3)
                                                       sub->qos, c->node_id);
             if (changed && p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_SUB_NOTIFY, c->node_id);
+                /* Also inform connected leaves so they build route tables
+                 * and can route without flooding on publish. */
+                send_sub_to_leaves(sub, P2P_SUB_NOTIFY, c->node_id);
             }
         } else if (type == P2P_UNSUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
             int changed = p2p_router_remote_unsubscribe(sub->owner_id, sub->filter);
             if (changed && p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_UNSUB_NOTIFY, c->node_id);
+                send_sub_to_leaves(sub, P2P_UNSUB_NOTIFY, c->node_id);
             }
         } else if (type == P2P_PUBLISH) {
             p2p_publish_msg_t msg;
@@ -1016,6 +1022,28 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
         if (!conns[i].connected || conns[i].role != P2P_ROLE_ROUTER) {
+            continue;
+        }
+        if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
+            continue;
+        }
+        plat_mutex_lock(&send_locks[i]);
+        (void)send_frame(conns[i].fd, type, msg, sizeof(*msg));
+        plat_mutex_unlock(&send_locks[i]);
+    }
+    plat_mutex_unlock(&peer_lock);
+}
+
+/*
+ * Forward a subscription notification to directly connected leaf nodes so
+ * they can build a local route table and avoid blind-flooding on publish.
+ */
+static void send_sub_to_leaves(const p2p_sub_msg_t *msg, uint8_t type,
+                               const uint8_t *exclude_node_id)
+{
+    plat_mutex_lock(&peer_lock);
+    for (int i = 0; i < P2P_PEER_MAX; i++) {
+        if (!conns[i].connected || conns[i].role == P2P_ROLE_ROUTER) {
             continue;
         }
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
