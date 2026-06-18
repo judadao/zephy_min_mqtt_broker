@@ -71,7 +71,7 @@ static int hop_in_list(uint8_t hops[][P2P_NODE_ID_LEN], int count,
 
 static int filter_is_exact(const char *filter)
 {
-    return strchr(filter, '+') == NULL && strchr(filter, '#') == NULL;
+    return strpbrk(filter, "+#") == NULL;
 }
 
 static int id_is_zero(const uint8_t id[P2P_NODE_ID_LEN])

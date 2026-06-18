@@ -837,11 +837,10 @@ static void connect_loop(void *p1, void *p2, void *p3)
 #endif
 
         if (budget > 0) {
-            for (int i = 1; i < P2P_PEER_MAX + 1; i++) {
-                if (!conns[i - 1].connected) {
-                    continue;
+            for (int i = 0; i < P2P_PEER_MAX; i++) {
+                if (conns[i].connected) {
+                    connected++;
                 }
-                connected++;
             }
         }
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
@@ -987,12 +986,17 @@ void p2p_peer_start(void)
     LOG_INF("P2P peer TCP enabled on port %d", P2P_PORT);
 }
 
-void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
-                             const uint8_t *exclude_node_id)
+static void send_sub_to_peers_by_role(const p2p_sub_msg_t *msg, uint8_t type,
+                                      const uint8_t *exclude_node_id,
+                                      int routers_only)
 {
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (!conns[i].connected || conns[i].role != P2P_ROLE_ROUTER) {
+        if (!conns[i].connected) {
+            continue;
+        }
+        if (routers_only ? conns[i].role != P2P_ROLE_ROUTER
+                         : conns[i].role == P2P_ROLE_ROUTER) {
             continue;
         }
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
@@ -1005,6 +1009,12 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
     plat_mutex_unlock(&peer_lock);
 }
 
+void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
+                             const uint8_t *exclude_node_id)
+{
+    send_sub_to_peers_by_role(msg, type, exclude_node_id, 1);
+}
+
 /*
  * Forward a subscription notification to directly connected leaf nodes so
  * they can build a local route table and avoid blind-flooding on publish.
@@ -1012,19 +1022,7 @@ void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
 static void send_sub_to_leaves(const p2p_sub_msg_t *msg, uint8_t type,
                                const uint8_t *exclude_node_id)
 {
-    plat_mutex_lock(&peer_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
-        if (!conns[i].connected || conns[i].role == P2P_ROLE_ROUTER) {
-            continue;
-        }
-        if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
-            continue;
-        }
-        plat_mutex_lock(&send_locks[i]);
-        (void)send_frame(conns[i].fd, type, msg, sizeof(*msg));
-        plat_mutex_unlock(&send_locks[i]);
-    }
-    plat_mutex_unlock(&peer_lock);
+    send_sub_to_peers_by_role(msg, type, exclude_node_id, 0);
 }
 
 void p2p_local_subscribe(const char *filter, uint8_t qos)
