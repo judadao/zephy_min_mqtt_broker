@@ -509,7 +509,8 @@ static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
 #endif
     topic_publish_remote(&pub);
 
-    if (p2p_election_role() == P2P_ROLE_ROUTER) {
+    if (p2p_election_role() == P2P_ROLE_ROUTER &&
+        p2p_router_next_hop_has_remote_match(c->node_id, msg->topic)) {
         p2p_router_publish(msg, c->node_id);
     }
 }
@@ -534,6 +535,23 @@ static void advertise_local_subs_to(p2p_conn_t *c)
             strncpy(msg.filter, subs[i].filter, sizeof(msg.filter) - 1);
             msg.qos = subs[i].qos;
             (void)send_frame_locked(c->fd, P2P_SUB_NOTIFY, &msg, sizeof(msg));
+        }
+    }
+}
+
+void p2p_resync_local_subscriptions(void)
+{
+    sub_snapshot_t subs[8];
+    int cursor = 0;
+
+    while (cursor < TOPIC_MAX_SUBS) {
+        int n = topic_get_sub_snapshots_from(subs, 8, &cursor);
+
+        for (int i = 0; i < n; i++) {
+            p2p_local_subscribe(subs[i].filter, subs[i].qos);
+        }
+        if (n <= 0) {
+            break;
         }
     }
 }

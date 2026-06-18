@@ -12,6 +12,7 @@ typedef struct {
     uint8_t self_id[P2P_NODE_ID_LEN];
     p2p_peer_score_t peers[P2P_PEER_MAX + 1]; /* slot 0 is self */
     p2p_role_t role;
+    uint32_t topology_sig;
     uint32_t publish_count;
     uint32_t publish_rate;
     int64_t publish_window_ms;
@@ -45,6 +46,12 @@ static int ilog2_floor(int n)
 
 static int router_target_count(int active_nodes)
 {
+    if (active_nodes <= 1) {
+        return active_nodes;
+    }
+#if P2P_ROUTER_COUNT > 0
+    return P2P_ROUTER_COUNT < active_nodes ? P2P_ROUTER_COUNT : active_nodes;
+#else
     p2p_router_stats_t stats = {0};
     int free_slots = client_free_slots();
     int publish_pressure;
@@ -52,12 +59,6 @@ static int router_target_count(int active_nodes)
     int best_count = 1;
     int best_reward = INT_MIN;
 
-    if (active_nodes <= 1) {
-        return active_nodes;
-    }
-#if P2P_ROUTER_COUNT > 0
-    return P2P_ROUTER_COUNT < active_nodes ? P2P_ROUTER_COUNT : active_nodes;
-#else
     if (!p2p_router_stats(&stats)) {
         stats.remote_nodes = 0;
         stats.remote_subs = 0;
@@ -69,6 +70,11 @@ static int router_target_count(int active_nodes)
                       (int)stats.exact_routes * 2 +
                       (int)stats.wildcard_routes * 3 +
                       (int)stats.remote_nodes * 6;
+
+    if (active_nodes <= 5 &&
+        (publish_pressure > 0 || remote_pressure > 0 || stats.remote_nodes > 0)) {
+        return active_nodes;
+    }
 
     for (int candidate = 1; candidate <= active_nodes; candidate++) {
         int span = (active_nodes + candidate - 1) / candidate;
@@ -129,6 +135,11 @@ int p2p_election_peer_budget(int active_nodes)
                       (int)stats.exact_routes * 2 +
                       (int)stats.wildcard_routes * 3 +
                       (int)stats.remote_nodes * 8;
+
+    if (active_nodes <= 5 &&
+        (publish_pressure > 0 || remote_pressure > 0 || stats.remote_nodes > 0)) {
+        return max_degree;
+    }
 
     for (int candidate = 1; candidate <= max_degree; candidate++) {
         int span = (active_nodes + candidate - 1) / candidate;
@@ -197,12 +208,25 @@ static void expire_old_peers(void)
     }
 }
 
-static void recompute_role_locked(void)
+static uint32_t hash_update(uint32_t hash, const void *data, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+
+    for (size_t i = 0; i < len; i++) {
+        hash ^= p[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static int recompute_role_locked(void)
 {
     p2p_peer_score_t sorted[P2P_PEER_MAX + 1];
     int count = 0;
     int router_count;
     p2p_role_t old_role = st.role;
+    uint32_t old_sig = st.topology_sig;
+    uint32_t sig = 2166136261u;
 
     expire_old_peers();
     st.peers[0].score = local_score();
@@ -235,9 +259,20 @@ static void recompute_role_locked(void)
     }
     st.peers[0].role = (uint8_t)st.role;
 
+    for (int i = 0; i < count; i++) {
+        if (sorted[i].role != P2P_ROLE_ROUTER) {
+            continue;
+        }
+        sig = hash_update(sig, sorted[i].node_id, P2P_NODE_ID_LEN);
+        sig = hash_update(sig, &sorted[i].score, sizeof(sorted[i].score));
+        sig = hash_update(sig, &sorted[i].role, sizeof(sorted[i].role));
+    }
+    st.topology_sig = sig;
+
     if (old_role != st.role) {
         LOG_INF("P2P role changed: %s", st.role == P2P_ROLE_ROUTER ? "ROUTER" : "LEAF");
     }
+    return old_role != st.role || old_sig != st.topology_sig;
 }
 
 void p2p_election_init(const uint8_t node_id[P2P_NODE_ID_LEN])
@@ -250,20 +285,26 @@ void p2p_election_init(const uint8_t node_id[P2P_NODE_ID_LEN])
     st.peers[0].p2p_port = P2P_PORT;
     st.peers[0].in_use = 1;
     st.role = P2P_ROLE_ROUTER;
-    recompute_role_locked();
+    (void)recompute_role_locked();
     plat_mutex_unlock(&p2p_lock);
 }
 
 void p2p_election_update_self(void)
 {
+    int changed;
+
     plat_mutex_lock(&p2p_lock);
-    recompute_role_locked();
+    changed = recompute_role_locked();
     plat_mutex_unlock(&p2p_lock);
+    if (changed) {
+        p2p_resync_local_subscriptions();
+    }
 }
 
 void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr)
 {
     int slot = -1;
+    int changed = 0;
 
     if (id_cmp(ann->node_id, st.self_id) == 0) {
         return;
@@ -289,9 +330,12 @@ void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr)
         st.peers[slot].role = ann->role;
         st.peers[slot].last_seen_ms = plat_uptime_ms();
         st.peers[slot].in_use = 1;
-        recompute_role_locked();
+        changed = recompute_role_locked();
     }
     plat_mutex_unlock(&p2p_lock);
+    if (slot > 0 && changed) {
+        p2p_resync_local_subscriptions();
+    }
 }
 
 void p2p_election_record_publish(void)
@@ -341,7 +385,7 @@ int p2p_election_snapshot(p2p_peer_score_t *out, int max)
 void p2p_election_build_announce(p2p_announce_t *out)
 {
     plat_mutex_lock(&p2p_lock);
-    recompute_role_locked();
+    (void)recompute_role_locked();
     memcpy(out->node_id, st.self_id, P2P_NODE_ID_LEN);
     out->mqtt_port = MQTT_BROKER_PORT;
     out->p2p_port = P2P_PORT;
