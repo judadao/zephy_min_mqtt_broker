@@ -447,6 +447,27 @@ void topic_unsubscribe_all(struct client *c)
 #endif
 }
 
+static void deliver_to_subscriber_locked(const mqtt_publish_t *pub, int idx)
+{
+    mqtt_publish_t out = *pub;
+    out.retain = 0; /* never forward retain flag to subscribers */
+    out.qos    = out.qos < subs[idx].qos ? out.qos : subs[idx].qos;
+    if (out.qos > 0) {
+        if (++subs[idx].client->next_packet_id == 0)
+            ++subs[idx].client->next_packet_id; /* skip 0, invalid per spec */
+        out.packet_id = subs[idx].client->next_packet_id;
+    } else {
+        out.packet_id = 0;
+    }
+    uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
+    int len = packet_build_publish(&out, buf, sizeof(buf));
+    if (len > 0) {
+        client_send(subs[idx].client, buf, (size_t)len);
+        if (out.qos > 0)
+            client_inflight_store(subs[idx].client, out.packet_id, buf, (uint16_t)len, out.qos);
+    }
+}
+
 static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 {
     /* One lock covers both the retain store update and fan-out. */
@@ -531,59 +552,14 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
             if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
                 continue;
             }
-
-            mqtt_publish_t out = *pub;
-            out.retain = 0; /* never forward retain flag to subscribers */
-            out.qos    = out.qos < subs[idx].qos ? out.qos : subs[idx].qos;
-            if (out.qos > 0) {
-                if (++subs[idx].client->next_packet_id == 0) {
-                    ++subs[idx].client->next_packet_id; /* skip 0, invalid per spec */
-                }
-                out.packet_id = subs[idx].client->next_packet_id;
-            } else {
-                out.packet_id = 0;
-            }
-
-            uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
-            int     len = packet_build_publish(&out, buf, sizeof(buf));
-            if (len > 0) {
-                client_send(subs[idx].client, buf, (size_t)len);
-                if (out.qos > 0) {
-                    client_inflight_store(subs[idx].client, out.packet_id,
-                                          buf, (uint16_t)len, out.qos);
-                }
-            }
+            deliver_to_subscriber_locked(pub, idx);
         }
 
         for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
-            if (!subs[idx].in_use) {
+            if (!subs[idx].in_use || !topic_match(subs[idx].filter, pub->topic)) {
                 continue;
             }
-            if (!topic_match(subs[idx].filter, pub->topic)) {
-                continue;
-            }
-
-            mqtt_publish_t out = *pub;
-            out.retain = 0; /* never forward retain flag to subscribers */
-            out.qos    = out.qos < subs[idx].qos ? out.qos : subs[idx].qos;
-            if (out.qos > 0) {
-                if (++subs[idx].client->next_packet_id == 0) {
-                    ++subs[idx].client->next_packet_id; /* skip 0, invalid per spec */
-                }
-                out.packet_id = subs[idx].client->next_packet_id;
-            } else {
-                out.packet_id = 0;
-            }
-
-            uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
-            int     len = packet_build_publish(&out, buf, sizeof(buf));
-            if (len > 0) {
-                client_send(subs[idx].client, buf, (size_t)len);
-                if (out.qos > 0) {
-                    client_inflight_store(subs[idx].client, out.packet_id,
-                                          buf, (uint16_t)len, out.qos);
-                }
-            }
+            deliver_to_subscriber_locked(pub, idx);
         }
         plat_mutex_unlock(&topic_lock);
     }
