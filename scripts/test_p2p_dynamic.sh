@@ -30,6 +30,7 @@ _cleanup() {
     wait "$SUB_PID" 2>/dev/null || true
     wait "$A_PID" 2>/dev/null || true
     wait "$B_PID" 2>/dev/null || true
+    KEEP=5 LOG_ROOT="$OUT" "$SCRIPT_DIR/cleanup_logs.sh" >/dev/null 2>&1 || true
 }
 trap _cleanup EXIT
 

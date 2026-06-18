@@ -8,6 +8,7 @@ set -uo pipefail
 
 KEEP="${KEEP:-5}"
 LOG_ROOT="${LOG_ROOT:-build_out}"
+LOG_NAME_GLOB="${LOG_NAME_GLOB:-*.log}"
 
 if ! [[ "$KEEP" =~ ^[0-9]+$ ]] || [ "$KEEP" -lt 0 ]; then
     echo "[fail] KEEP must be a non-negative integer" >&2
@@ -23,7 +24,7 @@ while IFS= read -r file; do
     [ -n "$file" ] || continue
     rm -f "$file"
 done < <(
-    find "$LOG_ROOT" -type f -name '*.log' -printf '%T@ %p\n' 2>/dev/null \
+    find "$LOG_ROOT" -type f -name "$LOG_NAME_GLOB" -printf '%T@ %p\n' 2>/dev/null \
         | sort -nr \
         | awk -v keep="$KEEP" 'NR > keep {sub(/^[^ ]+[[:space:]]+/, ""); print}'
 )

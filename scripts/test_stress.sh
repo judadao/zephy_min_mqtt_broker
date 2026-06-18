@@ -28,6 +28,7 @@ _cleanup() {
     done
     [ $BROKER_PID -ne 0 ] && kill "$BROKER_PID" 2>/dev/null || true
     wait 2>/dev/null || true
+    KEEP=5 LOG_ROOT=/tmp LOG_NAME_GLOB='mqtt_*_broker.log' "$SCRIPT_DIR/cleanup_logs.sh" >/dev/null 2>&1 || true
 }
 trap _cleanup EXIT
 

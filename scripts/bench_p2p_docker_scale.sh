@@ -68,6 +68,7 @@ _cleanup() {
         docker rm -f "$name" >/dev/null 2>&1 || true
     done
     CONTAINERS=""
+    KEEP=5 LOG_ROOT="$OUT" "$SCRIPT_DIR/cleanup_logs.sh" >/dev/null 2>&1 || true
 }
 trap _cleanup EXIT
 

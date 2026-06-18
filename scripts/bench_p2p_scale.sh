@@ -95,6 +95,7 @@ _cleanup() {
         wait "$pid" 2>/dev/null || true
     done
     PIDS=""
+    KEEP=5 LOG_ROOT="$OUT" "$SCRIPT_DIR/cleanup_logs.sh" >/dev/null 2>&1 || true
     sleep 0.2
 }
 trap _cleanup EXIT
