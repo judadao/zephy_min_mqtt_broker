@@ -47,7 +47,7 @@ static uint32_t topic_hash(const char *s)
 
 static int filter_is_exact_local(const char *filter)
 {
-    return strchr(filter, '+') == NULL && strchr(filter, '#') == NULL;
+    return strpbrk(filter, "+#") == NULL;
 }
 
 static void exact_list_insert_locked(int slot)
@@ -243,6 +243,7 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
     int old_count;
     uint8_t old_max_qos;
     uint8_t new_max_qos;
+    uint8_t old_slot_qos = 0;
     int notify_sub = 0;
 #endif
 
@@ -259,9 +260,18 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             continue;
         }
         if (subs[i].client == c && strcmp(subs[i].filter, filter) == 0) {
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+            old_slot_qos = subs[i].qos;
+#endif
             subs[i].qos = qos;
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            (void)filter_stats_locked(filter, &new_max_qos);
+            if (qos >= old_max_qos) {
+                new_max_qos = qos;
+            } else if (old_slot_qos < old_max_qos) {
+                new_max_qos = old_max_qos; /* slot wasn't the max; max unchanged */
+            } else {
+                (void)filter_stats_locked(filter, &new_max_qos); /* was max, lowered */
+            }
             notify_sub = (new_max_qos != old_max_qos);
 #endif
             plat_mutex_unlock(&topic_lock);
@@ -287,7 +297,7 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
             wildcard_list_insert_locked(i);
         }
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-        (void)filter_stats_locked(filter, &new_max_qos);
+        new_max_qos = (qos > old_max_qos) ? qos : old_max_qos;
         notify_sub = (old_count == 0 || new_max_qos != old_max_qos);
 #endif
         plat_mutex_unlock(&topic_lock);
