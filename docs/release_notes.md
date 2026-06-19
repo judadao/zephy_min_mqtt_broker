@@ -1,5 +1,19 @@
 # Release Notes
 
+## minmqtt-v0.1.11 (2026-06-19)
+
+Patch release focused on parser-level protocol value validation.
+
+### Included
+- Reject PUBLISH packets with reserved QoS=3 in `packet_parse_publish()`
+- Reject QoS PUBLISH packets with packet_id=0 in `packet_parse_publish()`
+- Reject SUBSCRIBE and UNSUBSCRIBE packets with packet_id=0 in their parsers
+- Add unit coverage for parser-level packet identifier and QoS validation
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.10 (2026-06-19)
 
 Patch release focused on parser argument validation.

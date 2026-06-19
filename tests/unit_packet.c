@@ -440,10 +440,28 @@ static void test_parse_publish_null_byte(void)
     ASSERT(packet_parse_publish(&pkt, NULL) < 0,
            "parse_publish NULL output returns error");
 
+    pkt.type_flags = MQTT_PUBLISH | 0x06;
+    ASSERT(packet_parse_publish(&pkt, &pub) < 0,
+           "parse_publish rejects QoS=3");
+
+    {
+        static const uint8_t qos1_zero_id[] = {
+            0x00, 0x03, 't', '/', 'x',
+            0x00, 0x00,
+            'X'
+        };
+        pkt.type_flags = MQTT_PUBLISH | 0x02;
+        pkt.buf_len = sizeof(qos1_zero_id);
+        memcpy(pkt.buf, qos1_zero_id, sizeof(qos1_zero_id));
+        ASSERT(packet_parse_publish(&pkt, &pub) < 0,
+               "parse_publish rejects QoS packet_id=0");
+    }
+
     /* topic without null byte should parse fine */
     uint8_t ok_topic[] = { 'a', 'b', 'c', '/', 'x' };
     body[0] = 0x00; body[1] = 5;
     memcpy(body + 2, ok_topic, 5);
+    pkt.type_flags = MQTT_PUBLISH;
     pkt.buf_len = 8;
     memcpy(pkt.buf, body, 8);
     memset(&pub, 0, sizeof(pub));
@@ -632,6 +650,16 @@ static void test_parse_subscribe_edge(void)
     ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
            "subscribe qos=3 rejected");
 
+    static const uint8_t body_packet_id_zero[] = {
+        0x00, 0x00,
+        0x00, 0x03, 'x', '/', 'y', 0x00
+    };
+    pkt.buf_len = sizeof(body_packet_id_zero);
+    memcpy(pkt.buf, body_packet_id_zero, sizeof(body_packet_id_zero));
+    count = 0;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
+           "subscribe packet_id=0 rejected");
+
     /* more topic filters than caller capacity must be rejected, not truncated */
     static const uint8_t body_too_many[] = {
         0x00, 0x07,
@@ -720,6 +748,17 @@ static void test_parse_unsubscribe(void)
         count = 0;
         ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 1) < 0,
                "unsubscribe over max_topics rejected");
+    }
+    {
+        static const uint8_t body_packet_id_zero[] = {
+            0x00, 0x00,
+            0x00, 0x01, 'a'
+        };
+        pkt.buf_len = sizeof(body_packet_id_zero);
+        memcpy(pkt.buf, body_packet_id_zero, sizeof(body_packet_id_zero));
+        count = 0;
+        ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4) < 0,
+               "unsubscribe packet_id=0 rejected");
     }
     ASSERT(packet_parse_unsubscribe(NULL, &pid, topics, &count, 4) < 0,
            "parse_unsubscribe NULL packet returns error");

@@ -220,6 +220,9 @@ int packet_parse_publish(const mqtt_packet_t *pkt, mqtt_publish_t *out)
     out->dup    = (pkt->type_flags >> 3) & 0x01;
     out->qos    = (pkt->type_flags >> 1) & 0x03;
     out->retain = pkt->type_flags & 0x01;
+    if (out->qos == 3) {
+        return -1;
+    }
 
     if (read_str(b, len, &pos, out->topic, sizeof(out->topic)) < 0) {
         return -1;
@@ -230,6 +233,9 @@ int packet_parse_publish(const mqtt_packet_t *pkt, mqtt_publish_t *out)
             return -1;
         }
         out->packet_id = read_u16(b + pos);
+        if (out->packet_id == 0) {
+            return -1;
+        }
         pos += 2;
     }
 
@@ -261,6 +267,9 @@ int packet_parse_subscribe(const mqtt_packet_t *pkt,
         return -1;
     }
     *packet_id = read_u16(b + pos);
+    if (*packet_id == 0) {
+        return -1;
+    }
     pos += 2;
     *count = 0;
 
@@ -304,6 +313,9 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
         return -1;
     }
     *packet_id = read_u16(b + pos);
+    if (*packet_id == 0) {
+        return -1;
+    }
     pos += 2;
     *count = 0;
 
