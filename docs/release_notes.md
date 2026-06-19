@@ -1,5 +1,47 @@
 # Release Notes
 
+## minmqtt-v0.1.13 (2026-06-19)
+
+Patch release focused on static-seed P2P stability.
+
+### Included
+- Make `CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY` skip UDP discovery sockets and
+  discovery threads entirely
+- Keep static-seed-only mode on the existing TCP peer transport and router path
+- Detach POSIX P2P peer worker threads so repeated reconnects release thread
+  resources after disconnect
+- Bound P2P topic/filter string reads before building publish and subscription
+  propagation messages
+- Send P2P publish floods and subscription fanout from a peer-id snapshot so
+  socket writes do not hold the peer table lock
+- Snapshot P2P HELLO fanout targets and lock peer-count reads in the connect
+  loop to reduce peer table contention and data races
+- Parse POSIX `MQTT_P2P_PEERS` only once into the static seed table instead of
+  reparsing the environment every connect tick
+- Send MQTT client frames with a loop so partial socket writes do not disconnect
+  otherwise healthy clients under load
+- Report POSIX client worker thread creation failures so failed allocations free
+  their client slot and follow the normal server-unavailable path
+- Remove unused per-client receive buffer fields from `client_t`, reducing the
+  fixed client pool footprint by about `MQTT_MAX_PACKET_SIZE + 8 + sizeof(size_t)`
+  per slot
+- Give dynamic and static-seed-only P2P smoke tests separate output directories
+  so they can run without overwriting each other's test binaries and logs
+- Make Linux broker/CLI targets depend on public and platform headers so header
+  changes rebuild the binaries used by tests
+- Complete the QoS 2 publish handshake in `mqtt_cli pub -q 2` before sending
+  DISCONNECT, removing retained-QoS2 test timing dependence
+- Assign packet identifiers and inflight tracking for retained QoS 1/2 delivery
+  so retained messages are not dropped by strict PUBLISH builder validation
+- Add static-seed-only P2P smoke coverage
+
+### Validation
+- `make -B -f Makefile.linux all test-helpers`
+- `make -f Makefile.linux unit-tests`
+- `./scripts/run_all_tests.sh`
+- `./scripts/test_p2p_dynamic.sh`
+- `./scripts/test_p2p_static_seeds_only.sh`
+
 ## minmqtt-v0.1.12 (2026-06-19)
 
 Patch release focused on topic-list parser strictness.

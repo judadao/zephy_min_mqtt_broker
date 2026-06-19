@@ -637,7 +637,12 @@ int topic_get_client_subs(struct client *c,
 
 void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
 {
-    struct { uint8_t buf[MQTT_MAX_PACKET_SIZE + 8]; int len; } pkts[TOPIC_RETAIN_MAX];
+    struct {
+        uint8_t  buf[MQTT_MAX_PACKET_SIZE + 8];
+        int      len;
+        uint8_t  qos;
+        uint16_t packet_id;
+    } pkts[TOPIC_RETAIN_MAX];
     int npkts = 0;
 
     plat_mutex_lock(&topic_lock);
@@ -651,9 +656,17 @@ void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
         pub.payload_len = retains[j].payload_len;
         pub.qos         = qos < retains[j].qos ? qos : retains[j].qos;
         pub.retain      = 1;
+        if (pub.qos > 0) {
+            if (++c->next_packet_id == 0) {
+                ++c->next_packet_id;
+            }
+            pub.packet_id = c->next_packet_id;
+        }
         pkts[npkts].len = packet_build_publish(&pub, pkts[npkts].buf,
                                                sizeof(pkts[npkts].buf));
         if (pkts[npkts].len > 0) {
+            pkts[npkts].qos = pub.qos;
+            pkts[npkts].packet_id = pub.packet_id;
             npkts++;
         }
     }
@@ -661,5 +674,9 @@ void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
 
     for (int i = 0; i < npkts; i++) {
         client_send(c, pkts[i].buf, (size_t)pkts[i].len);
+        if (pkts[i].qos > 0) {
+            client_inflight_store(c, pkts[i].packet_id, pkts[i].buf,
+                                  (uint16_t)pkts[i].len, pkts[i].qos);
+        }
     }
 }

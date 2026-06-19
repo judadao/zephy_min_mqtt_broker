@@ -10,6 +10,7 @@
 
 LOG_MODULE_REGISTER(mqtt_p2p_discover, LOG_LEVEL_INF);
 
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
 static int udp_fd = -1;
 
 #ifdef __ZEPHYR__
@@ -21,6 +22,7 @@ static K_THREAD_STACK_DEFINE(listen_stack, P2P_STACK_SIZE);
 #else
 static pthread_t announce_thread;
 static pthread_t listen_thread;
+#endif
 #endif
 
 static void make_node_id(uint8_t out[P2P_NODE_ID_LEN])
@@ -36,6 +38,7 @@ static void make_node_id(uint8_t out[P2P_NODE_ID_LEN])
     }
 }
 
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
 static void p2p_announce_loop(void *p1, void *p2, void *p3)
 {
     ARG_UNUSED(p1);
@@ -96,15 +99,23 @@ static void *listen_main(void *arg)
     return NULL;
 }
 #endif
+#endif
 
 void p2p_start(void)
 {
+    uint8_t node_id[P2P_NODE_ID_LEN];
+
+#if defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+    make_node_id(node_id);
+    p2p_election_init(node_id);
+    p2p_peer_start();
+    LOG_INF("P2P static seed-only broker mode enabled on TCP %d", P2P_PORT);
+#else
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
         .sin_port = htons(P2P_DISCOVERY_PORT),
         .sin_addr.s_addr = htonl(INADDR_ANY),
     };
-    uint8_t node_id[P2P_NODE_ID_LEN];
     int opt = 1;
 
     udp_fd = plat_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -137,4 +148,5 @@ void p2p_start(void)
 #endif
     p2p_peer_start();
     LOG_INF("P2P dynamic broker discovery enabled on UDP %d", P2P_DISCOVERY_PORT);
+#endif
 }

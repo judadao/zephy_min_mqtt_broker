@@ -103,7 +103,15 @@ int client_alloc(int fd)
                     c, NULL, NULL,
                     5, 0, K_NO_WAIT);
 #else
-    plat_thread_spawn(c);
+    if (plat_thread_spawn(c) != 0) {
+        LOG_ERR("client[%d] thread spawn failed", c->slot);
+        memset(c, 0, sizeof(*c));
+        c->slot = (uint8_t)(c - clients);
+        c->fd = -1;
+        c->state = CLIENT_STATE_FREE;
+        plat_mutex_unlock(&pool_lock);
+        return -1;
+    }
 #endif
 
     plat_mutex_unlock(&pool_lock);
@@ -374,11 +382,16 @@ void client_thread_fn(void *p1, void *p2, void *p3)
 
 int client_send(client_t *c, const uint8_t *buf, size_t len)
 {
-    ssize_t sent = plat_send(c->fd, buf, len, 0);
-    if (sent < 0 || (size_t)sent != len) {
-        LOG_WRN("client[%d] send error: %d", c->slot, errno);
-        c->state = CLIENT_STATE_DISCONNECTING;
-        return -1;
+    size_t done = 0;
+
+    while (done < len) {
+        ssize_t sent = plat_send(c->fd, buf + done, len - done, 0);
+        if (sent <= 0) {
+            LOG_WRN("client[%d] send error: %d", c->slot, errno);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            return -1;
+        }
+        done += (size_t)sent;
     }
     return 0;
 }
@@ -828,9 +841,13 @@ static void *posix_thread_wrapper(void *arg)
     return NULL;
 }
 
-void plat_thread_spawn(client_t *c)
+int plat_thread_spawn(client_t *c)
 {
-    pthread_create(&c->thread, NULL, posix_thread_wrapper, c);
+    int rc = pthread_create(&c->thread, NULL, posix_thread_wrapper, c);
+    if (rc != 0) {
+        return rc;
+    }
     pthread_detach(c->thread);
+    return 0;
 }
 #endif
