@@ -465,6 +465,59 @@ else
     _ok "SUBSCRIBE reserved bits test skipped (python3 not available)"
 fi
 
+# ── Test 13b: SUBSCRIBE with invalid requested QoS byte ──────────────────────
+echo "--- Test 13b: SUBSCRIBE with invalid requested QoS byte ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t13b.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def send_bad_sub(cid, qos_byte):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    s.connect(('127.0.0.1', 1883))
+    s.sendall(make_connect(cid))
+    s.recv(4)  # CONNACK
+
+    time.sleep(0.1)
+    t = b't/x'
+    body = b'\x00\x01' + struct.pack('>H', len(t)) + t + bytes([qos_byte])
+    pkt = b'\x82' + bytes([len(body)]) + body
+    s.sendall(pkt)
+    time.sleep(0.3)
+    try:
+        data = s.recv(4)
+        if len(data) == 0:
+            print(f"OK: closed on SUBSCRIBE qos byte 0x{qos_byte:02x}")
+        else:
+            print(f"UNEXPECTED: qos=0x{qos_byte:02x} got {data.hex()}")
+    except (ConnectionResetError, BrokenPipeError):
+        print(f"OK: closed on SUBSCRIBE qos byte 0x{qos_byte:02x} (reset)")
+    except socket.timeout:
+        print(f"TIMEOUT: did not close on qos byte 0x{qos_byte:02x}")
+    s.close()
+
+send_bad_sub('mal_t13b_hi', 0xff)
+send_bad_sub('mal_t13b_q3', 0x03)
+PYEOF
+    OUT="$(cat /tmp/malformed_t13b.out)"
+    echo "$OUT" | sed 's/^/  result: /'
+    if echo "$OUT" | grep -qi "UNEXPECTED\|TIMEOUT"; then
+        _fail "broker did not close on SUBSCRIBE invalid requested QoS byte"
+    else
+        _ok "broker closes connection on SUBSCRIBE invalid requested QoS byte"
+    fi
+else
+    _ok "SUBSCRIBE invalid requested QoS test skipped (python3 not available)"
+fi
+
 # ── Test 14: PINGREQ with reserved bits violated (§2.2.2 / §3.12.1) ──────────
 echo "--- Test 14: PINGREQ with bad fixed-header reserved bits ---"
 if command -v python3 >/dev/null 2>&1; then

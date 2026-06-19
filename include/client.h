@@ -61,13 +61,36 @@ typedef struct {
     int64_t  last_seen_ms;
 } client_snapshot_t;
 
+/*
+ * Client-pool snapshot APIs for dashboards and embedders.
+ *
+ * client_get_snapshots() copies up to max connected clients into out and
+ * returns the number written. client_free_slots() returns the number of
+ * currently available client slots in the fixed pool.
+ */
 int  client_get_snapshots(client_snapshot_t *out, int max);
 int  client_free_slots(void);
 
+/*
+ * Client-pool lifecycle and per-client worker entry points.
+ *
+ * client_pool_init() must run during broker initialization before accepting
+ * sockets. client_alloc() claims a fixed client slot, initializes it, and starts
+ * the platform thread that runs client_thread_fn(); it returns the slot index or
+ * -1 when the pool is full. client_free() releases the socket, publishes any
+ * pending Will message, persists subscriptions for non-clean sessions, and
+ * returns the slot to the pool.
+ */
 void client_pool_init(void);
-int  client_alloc(int fd);          /* returns slot index or -1 */
+int  client_alloc(int fd);
 void client_free(client_t *c);
 void client_thread_fn(void *p1, void *p2, void *p3);
+
+/*
+ * Internal client helpers used by topic/session code. client_send() returns 0
+ * when the full frame is sent or -1 on socket error. Inflight helpers manage
+ * fixed QoS 1/2 retransmit slots for outbound publishes.
+ */
 int  client_send(client_t *c, const uint8_t *buf, size_t len);
 void client_disconnect(client_t *c);
 void client_inflight_store(client_t *c, uint16_t id, const uint8_t *buf, uint16_t len, uint8_t qos);

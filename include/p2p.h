@@ -95,17 +95,43 @@ typedef struct {
     uint8_t  payload[MQTT_PAYLOAD_MAX];
 } __attribute__((packed)) p2p_publish_msg_t;
 
+/*
+ * Dynamic P2P lifecycle.
+ *
+ * p2p_start() initializes election/router state and starts discovery plus peer
+ * transport. It is normally called by broker_run() when
+ * CONFIG_MQTT_P2P_DYNAMIC is enabled. Applications embedding the broker should
+ * not call these functions unless they are replacing the default broker
+ * lifecycle.
+ */
 void p2p_start(void);
 void p2p_peer_start(void);
+
+/*
+ * Local MQTT event hooks. topic.c calls these when local subscriptions or
+ * publishes change so peers can maintain remote routing state. Arguments are
+ * copied into fixed-size P2P messages before transmission.
+ */
 void p2p_local_subscribe(const char *filter, uint8_t qos);
 void p2p_local_unsubscribe(const char *filter);
 void p2p_resync_local_subscriptions(void);
 void p2p_publish_from_local(const mqtt_publish_t *pub);
+
+/*
+ * Peer forwarding helpers used by router/peer internals. exclude_node_id may be
+ * NULL; when set, that node is skipped to avoid sending a message back to the
+ * peer it arrived from.
+ */
 void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
                                   const uint8_t *exclude_node_id);
 void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
                              const uint8_t *exclude_node_id);
 
+/*
+ * Router election state. Snapshot/build functions copy current state into
+ * caller-provided storage and return counts or derived values; they do not
+ * expose internal arrays.
+ */
 void p2p_election_init(const uint8_t node_id[P2P_NODE_ID_LEN]);
 void p2p_election_update_self(void);
 void p2p_election_update_peer(const p2p_announce_t *ann, uint32_t addr);
@@ -117,6 +143,12 @@ void p2p_election_build_announce(p2p_announce_t *out);
 void p2p_election_self_id(uint8_t out[P2P_NODE_ID_LEN]);
 int p2p_election_peer_budget(int active_nodes);
 
+/*
+ * Remote subscription router. These functions maintain and query the fixed P2P
+ * route table used to forward publishes toward peers with matching
+ * subscriptions. Return values are 0 on success or negative when the fixed
+ * route table cannot accept the update.
+ */
 int p2p_router_remote_subscribe(const uint8_t owner_id[P2P_NODE_ID_LEN],
                                 const char *filter, uint8_t qos,
                                 const uint8_t next_hop_id[P2P_NODE_ID_LEN]);

@@ -33,26 +33,50 @@ typedef struct {
 
 struct client; /* forward declaration — avoids pulling in client.h */
 
+/*
+ * Persistent-session lifecycle.
+ *
+ * session_init() clears the fixed session pool and must run during broker
+ * initialization. Sessions are keyed by MQTT client_id and are used only for
+ * clients that connect with clean_session=0. All functions copy caller data
+ * into broker-owned fixed buffers; no heap ownership is transferred.
+ */
 void       session_init(void);
 session_t *session_find(const char *client_id);
 session_t *session_create(const char *client_id);
-/* Find existing session or create a new one in one lock+scan.
- * Sets *was_found (if non-NULL) to 1 if found, 0 if created. */
+
+/*
+ * Find an existing session or create a new one in one lock+scan.
+ * Sets *was_found, when non-NULL, to 1 if found or 0 if created. Returns NULL
+ * when the fixed session pool is full.
+ */
 session_t *session_find_or_create(const char *client_id, uint8_t *was_found);
 void       session_delete(const char *client_id);
 
-/* save the client's current subscription list into the session */
+/*
+ * Save a disconnected persistent client's current subscription list. The list
+ * is clamped to SESSION_SUB_MAX and marks the session offline.
+ */
 void session_save_subs(session_t *s,
                        const char (*filters)[MQTT_TOPIC_MAX],
                        const uint8_t *qos, uint8_t count);
 
-/* enqueue one QoS-1 message for later delivery (caller holds session_lock) */
+/*
+ * Enqueue one QoS 1/2 message for later delivery. pkt_id is the packet id to
+ * use when retransmitting saved inflight messages; use 0 for freshly queued
+ * offline publishes so drain can allocate a new id. Returns 0 on success or -1
+ * when the fixed queue is full.
+ */
 int  session_enqueue(session_t *s, const mqtt_publish_t *pub, uint16_t pkt_id);
 
-/* deliver all queued messages to a freshly reconnected client */
+/* Deliver all queued messages to a freshly reconnected persistent client. */
 void session_drain(session_t *s, struct client *c);
 
-/* iterate offline sessions; enqueue pub for each matching filter (QoS>=1 only) */
+/*
+ * Iterate offline sessions and enqueue pub for each matching persisted filter.
+ * QoS 0 messages are intentionally skipped. Returns the number of sessions that
+ * accepted a queued message.
+ */
 int  session_offline_publish(const mqtt_publish_t *pub,
                               int (*match_fn)(const char *, const char *));
 

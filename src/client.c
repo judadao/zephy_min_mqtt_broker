@@ -687,6 +687,8 @@ static void handle_subscribe(client_t *c, const mqtt_packet_t *pkt)
     uint8_t  resp[32];
 
     if (packet_parse_subscribe(pkt, &packet_id, topics, qos, &count, 8) < 0) {
+        LOG_WRN("client[%d] malformed SUBSCRIBE — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
         return;
     }
 
@@ -741,6 +743,8 @@ static void handle_unsubscribe(client_t *c, const mqtt_packet_t *pkt)
     uint8_t  resp[4];
 
     if (packet_parse_unsubscribe(pkt, &packet_id, topics, &count, 8) < 0) {
+        LOG_WRN("client[%d] malformed UNSUBSCRIBE — closing", c->slot);
+        c->state = CLIENT_STATE_DISCONNECTING;
         return;
     }
 

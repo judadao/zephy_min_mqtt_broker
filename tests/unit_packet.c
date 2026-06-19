@@ -510,7 +510,7 @@ static void test_parse_subscribe_edge(void)
     ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
            "subscribe truncated → error");
 
-    /* qos field masked: wire qos=0xFF is masked to 0x03 (reserved bits) */
+    /* qos field high bits are reserved and MUST be zero */
     static const uint8_t body_qos3[] = {
         0x00, 0x05,                          /* packet_id = 5 */
         0x00, 0x03, 'a', '/', 'b', 0xFF      /* topic "a/b" with qos byte 0xFF */
@@ -518,10 +518,19 @@ static void test_parse_subscribe_edge(void)
     pkt.buf_len = sizeof(body_qos3);
     memcpy(pkt.buf, body_qos3, sizeof(body_qos3));
     count = 0;
-    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) == 0,
-           "subscribe qos-byte masked succeeds");
-    ASSERT_EQ(count,  1,    "subscribe qos-masked: count = 1");
-    ASSERT_EQ(qos[0], 0x03, "subscribe qos-masked: qos[0] masked to 0x03");
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
+           "subscribe qos-byte with reserved bits rejected");
+
+    /* QoS 3 is reserved even when no high bits are set */
+    static const uint8_t body_qos_reserved[] = {
+        0x00, 0x06,                          /* packet_id = 6 */
+        0x00, 0x03, 'x', '/', 'y', 0x03      /* topic "x/y" with QoS 3 */
+    };
+    pkt.buf_len = sizeof(body_qos_reserved);
+    memcpy(pkt.buf, body_qos_reserved, sizeof(body_qos_reserved));
+    count = 0;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
+           "subscribe qos=3 rejected");
 }
 
 static void test_parse_unsubscribe(void)

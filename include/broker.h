@@ -10,15 +10,20 @@
 #endif
 
 /*
- * Lifecycle:
- *   1. Bring up the network interface before calling broker_init().
- *   2. broker_init() returns 0 on success, negative errno-style value on error.
- *      Do not call broker_run() if broker_init() fails.
- *   3. broker_run() enters the main accept loop and never returns.
- *   4. If CONFIG_MQTT_P2P_DYNAMIC is defined, P2P routing is enabled
- *      automatically inside broker_run() — no extra init call is required.
+ * Public broker lifecycle for standalone and embedded use.
+ *
+ * The embedder is responsible for bringing up the network interface before
+ * broker_init(). On Zephyr this usually means connecting WiFi or Ethernet and
+ * waiting for an assigned IP address. broker_init() initializes broker-owned
+ * state and opens the listening socket; it returns 0 on success or a negative
+ * error code on failure. Do not call broker_run() after a failed init.
+ *
+ * broker_run() enters the accept loop and does not return during normal
+ * operation. It owns client allocation and per-client thread startup. When
+ * CONFIG_MQTT_P2P_DYNAMIC is enabled, dynamic P2P routing is started by the
+ * broker path; embedders do not need a separate P2P init call.
  */
 int  broker_init(void);
-void broker_run(void);   /* does not return */
+void broker_run(void);
 
 #endif /* BROKER_H */

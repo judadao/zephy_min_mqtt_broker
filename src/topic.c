@@ -252,7 +252,9 @@ int topic_subscribe(struct client *c, const char *filter, uint8_t qos)
      * and (for P2P) count all subscriptions to this filter with their max QoS. */
     int free_slot = -1;
     int found_slot = -1;
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
     uint8_t found_slot_qos = 0;
+#endif
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         if (!subs[i].in_use) {
             if (free_slot < 0) free_slot = i;

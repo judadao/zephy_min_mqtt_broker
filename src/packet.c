@@ -224,7 +224,11 @@ int packet_parse_subscribe(const mqtt_packet_t *pkt,
         if (pos >= len) {
             return -1;
         }
-        qos[*count] = b[pos++] & 0x03;
+        uint8_t requested_qos = b[pos++];
+        if ((requested_qos & 0xFC) != 0 || requested_qos > 2) {
+            return -1;
+        }
+        qos[*count] = requested_qos;
         (*count)++;
     }
     return 0;
