@@ -85,6 +85,10 @@ static void test_remaining_len_encode(void)
     /* overflow: 268435456 must fail */
     ASSERT(packet_encode_remaining_len(268435456, buf, &n) != 0,
            "encode overflow returns error");
+    ASSERT(packet_encode_remaining_len(0, NULL, &n) != 0,
+           "encode NULL output returns error");
+    ASSERT(packet_encode_remaining_len(0, buf, NULL) != 0,
+           "encode NULL byte count returns error");
 }
 
 static void test_remaining_len_decode(void)
@@ -123,6 +127,12 @@ static void test_remaining_len_decode(void)
     /* empty buffer → error */
     ASSERT(packet_decode_remaining_len(b4, 0, &val, &n) != 0,
            "decode empty buffer returns error");
+    ASSERT(packet_decode_remaining_len(NULL, 1, &val, &n) != 0,
+           "decode NULL input returns error");
+    ASSERT(packet_decode_remaining_len(b0, 1, NULL, &n) != 0,
+           "decode NULL output length returns error");
+    ASSERT(packet_decode_remaining_len(b0, 1, &val, NULL) != 0,
+           "decode NULL output byte count returns error");
 }
 
 static void test_remaining_len_roundtrip(void)

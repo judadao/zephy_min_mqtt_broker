@@ -1,5 +1,18 @@
 # Release Notes
 
+## minmqtt-v0.1.9 (2026-06-19)
+
+Patch release focused on Remaining Length helper argument validation.
+
+### Included
+- Reject NULL inputs in `packet_decode_remaining_len()`
+- Reject NULL outputs in `packet_decode_remaining_len()` and `packet_encode_remaining_len()`
+- Add unit coverage for invalid Remaining Length helper arguments
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.8 (2026-06-19)
 
 Patch release focused on CONNACK and SUBACK builder strictness.

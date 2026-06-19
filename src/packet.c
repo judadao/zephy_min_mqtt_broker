@@ -13,6 +13,10 @@ int packet_decode_remaining_len(const uint8_t *buf, size_t buf_len,
     uint32_t multiplier = 1;
     size_t   i          = 0;
 
+    if (!buf || !out_len || !out_bytes) {
+        return -1;
+    }
+
     do {
         if (i >= buf_len || i >= 4) {
             return -1;
@@ -30,6 +34,11 @@ int packet_decode_remaining_len(const uint8_t *buf, size_t buf_len,
 int packet_encode_remaining_len(uint32_t len, uint8_t *out, size_t *out_bytes)
 {
     size_t i = 0;
+
+    if (!out || !out_bytes) {
+        return -1;
+    }
+
     do {
         out[i] = len % 128;
         len   /= 128;
