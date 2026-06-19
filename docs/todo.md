@@ -5,7 +5,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 ## Zephyr Module
 
 - [ ] Confirm `CONFIG_MQTT_MIN_BROKER=y` builds as a Zephyr module without `CONFIG_MQTT_STANDALONE`
-- [ ] Add board-independent Zephyr build smoke test in CI or scripts
+- [x] Add board-independent Zephyr build smoke test in CI or scripts
 - [x] Verify `zephyr/module.yml`, `zephyr/Kconfig`, and `zephyr/CMakeLists.txt` are complete
 
 ## Public API
@@ -31,7 +31,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 ## Next Iteration Plan
 
 - [ ] Add header-level public API docs for broker/session/topic lifecycle and embedder responsibilities
-- [ ] Add a Zephyr module smoke script or CI job for `CONFIG_MQTT_MIN_BROKER=y`
+- [x] Add a Zephyr module smoke script or CI job for `CONFIG_MQTT_MIN_BROKER=y`
 - [ ] Add P2P peer/subscription snapshot APIs for dashboard or embedder observability
 - [x] Add malformed-packet integration coverage for SUBSCRIBE requested-QoS parser edge cases
 - [ ] Review remaining fixed-size buffers for explicit overflow test coverage

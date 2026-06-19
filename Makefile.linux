@@ -95,6 +95,7 @@ help:
 	@echo "  ./scripts/test_large_payload.sh       # large payloads, LWT+session"
 	@echo "  ./scripts/test_auth.sh                # username/password auth"
 	@echo "  ./scripts/test_stress.sh              # concurrent connections"
+	@echo "  ./scripts/test_zephyr_module.sh       # Zephyr module metadata/build smoke"
 	@echo "  ./scripts/test_keepalive.sh           # keepalive enforcement (~20s)"
 	@echo "  ./scripts/test_inflight_retry.sh      # QoS1 DUP retry (~20s)"
 	@echo "  ./scripts/test_p2p_dynamic.sh         # two-node P2P routing"
