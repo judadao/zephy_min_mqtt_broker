@@ -130,6 +130,20 @@ static int http_send_all(int fd, const void *buf, size_t len)
     return 0;
 }
 
+static int http_recv_all(int fd, char *buf, size_t len)
+{
+    size_t done = 0;
+
+    while (done < len) {
+        ssize_t n = recv(fd, buf + done, len - done, 0);
+        if (n <= 0) {
+            return -1;
+        }
+        done += (size_t)n;
+    }
+    return 0;
+}
+
 static void http_send(int fd, int code, const char *ctype,
                       const char *body, size_t blen)
 {
@@ -312,9 +326,17 @@ static void handle_connection(int fd)
                               ? (size_t)already : sizeof(body_buf) - 1;
                 memcpy(body_buf, body, copy);
             }
-            if (remain > 0 && already >= 0 &&
-                (size_t)already + (size_t)remain < sizeof(body_buf) - 1) {
-                recv(fd, body_buf + already, (size_t)remain, MSG_WAITALL);
+            if (remain > 0 && already >= 0) {
+                if ((size_t)already + (size_t)remain >= sizeof(body_buf)) {
+                    http_send(fd, 400, "application/json",
+                              "{\"ok\":false,\"error\":\"body too large\"}", 37);
+                    return;
+                }
+                if (http_recv_all(fd, body_buf + already, (size_t)remain) < 0) {
+                    http_send(fd, 400, "application/json",
+                              "{\"ok\":false,\"error\":\"truncated body\"}", 39);
+                    return;
+                }
             }
             /* null-terminator: always within buffer bounds */
             size_t term = (size_t)(already + (remain > 0 ? remain : 0));

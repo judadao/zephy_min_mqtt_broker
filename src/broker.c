@@ -17,6 +17,21 @@ LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
 static int listen_fd = -1;
 
+static int broker_send_all(int fd, const void *buf, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)buf;
+
+    while (len > 0) {
+        ssize_t n = plat_send(fd, p, len, 0);
+        if (n <= 0) {
+            return -1;
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
 static void configure_client_socket(int fd)
 {
 #ifndef __ZEPHYR__
@@ -93,7 +108,7 @@ void broker_run(void)
             uint8_t rej[4];
             int rlen = packet_build_connack(0, CONNACK_SERVER_UNAVAIL, rej, sizeof(rej));
             if (rlen > 0) {
-                plat_send(fd, rej, (size_t)rlen, 0);
+                (void)broker_send_all(fd, rej, (size_t)rlen);
             }
             plat_close(fd);
         }
