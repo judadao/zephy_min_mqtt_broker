@@ -1,5 +1,23 @@
 # Release Notes
 
+## minmqtt-v0.1.16 (2026-06-19)
+
+Patch release focused on topic fan-out contention.
+
+### Included
+- Move QoS 1/2 topic fan-out socket writes outside `topic_lock`
+- Keep duplicate-subscription de-duplication and packet-id allocation under the
+  topic lock, then build/send each frame after releasing it
+- Preserve QoS downgrade behavior by only assigning packet identifiers and
+  inflight entries for deliveries whose effective QoS is greater than zero
+
+### Validation
+- `make -B -f Makefile.linux all test-helpers`
+- `make -f Makefile.linux unit-tests`
+- `./scripts/test_qos2.sh`
+- `./scripts/test_session_qos2.sh`
+- `./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.15 (2026-06-19)
 
 Patch release focused on optional dashboard stability.
