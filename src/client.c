@@ -211,6 +211,14 @@ void client_thread_fn(void *p1, void *p2, void *p3)
 
         uint8_t type = pkt.type_flags & 0xF0;
 
+        /* MQTT §2.2.1: packet types 0 and 15 are reserved */
+        if (type == 0x00 || type == 0xF0) {
+            LOG_WRN("client[%d] reserved packet type 0x%02x — closing",
+                    c->slot, type);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            break;
+        }
+
         /* MQTT §2.2.2: validate fixed header reserved bits before dispatching */
         {
             uint8_t lower = pkt.type_flags & 0x0F;

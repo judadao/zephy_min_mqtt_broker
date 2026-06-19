@@ -1,5 +1,17 @@
 # Release Notes
 
+## minmqtt-v0.1.3 (2026-06-19)
+
+Patch release focused on MQTT fixed-header protocol hardening.
+
+### Included
+- Close client connections on reserved MQTT packet types 0 and 15
+- Add malformed-packet integration coverage for reserved packet types
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_malformed.sh`
+
 ## minmqtt-v0.1.2 (2026-06-19)
 
 Patch release focused on CONNECT parser strictness.
