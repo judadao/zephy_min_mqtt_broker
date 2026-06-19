@@ -7,11 +7,12 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
-Latest module release: `minmqtt-v0.1.17` (2026-06-19).
+Latest module release: `minmqtt-v0.1.18` (2026-06-19).
 
 Recent hardening releases tightened MQTT packet helper behavior without changing
 the public module shape:
 
+- `minmqtt-v0.1.18`: dashboard POST bodies are read completely or rejected
 - `minmqtt-v0.1.17`: pool-full CONNACK rejection uses complete socket writes
 - `minmqtt-v0.1.16`: QoS fan-out sends no longer hold the topic table lock
 - `minmqtt-v0.1.15`: dashboard HTTP sends handle partial writes and startup errors

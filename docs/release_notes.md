@@ -1,5 +1,19 @@
 # Release Notes
 
+## minmqtt-v0.1.18 (2026-06-19)
+
+Patch release focused on dashboard request-body stability.
+
+### Included
+- Read dashboard POST bodies with an explicit loop until `Content-Length` bytes
+  are received
+- Return HTTP 400 for oversized or truncated dashboard publish requests instead
+  of parsing partial JSON
+
+### Validation
+- `make -B -f Makefile.linux DASHBOARD=1 all`
+- `./scripts/test_dashboard.sh`
+
 ## minmqtt-v0.1.17 (2026-06-19)
 
 Patch release focused on connection rejection robustness.
