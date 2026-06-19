@@ -7,11 +7,12 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
-Latest module release: `minmqtt-v0.1.11` (2026-06-19).
+Latest module release: `minmqtt-v0.1.12` (2026-06-19).
 
 Recent hardening releases tightened MQTT packet helper behavior without changing
 the public module shape:
 
+- `minmqtt-v0.1.12`: SUBSCRIBE and UNSUBSCRIBE parsers reject empty topic lists
 - `minmqtt-v0.1.11`: parsers reject reserved PUBLISH QoS and packet_id=0 in
   QoS PUBLISH, SUBSCRIBE, and UNSUBSCRIBE packets
 - `minmqtt-v0.1.10`: parser APIs reject NULL arguments for CONNECT, PUBLISH,
@@ -472,11 +473,11 @@ date; an unversioned `latest` symlink is also created.
 
 | Symlink (always latest) | Stamped file | Platform |
 |------------------------|--------------|----------|
-| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.11_20260619` | Linux |
-| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.11_20260619` | Linux |
-| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.11_20260619.bin` | Zephyr/ESP32 |
-| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.11_20260619.elf` | Zephyr/ESP32 |
-| `build_out/zephyr.map` | `build_out/zephyr_v0.1.11_20260619.map` | Zephyr/ESP32 |
+| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.12_20260619` | Linux |
+| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.12_20260619` | Linux |
+| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.12_20260619.bin` | Zephyr/ESP32 |
+| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.12_20260619.elf` | Zephyr/ESP32 |
+| `build_out/zephyr.map` | `build_out/zephyr_v0.1.12_20260619.map` | Zephyr/ESP32 |
 
 Version is read from the Zephyr-format `VERSION` file. Override at build time:
 
