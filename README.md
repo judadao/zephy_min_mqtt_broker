@@ -24,8 +24,11 @@ count.
 ## Contents
 
 - [Core Capabilities](#core-capabilities)
+- [Project Direction](#project-direction)
+- [Dependency Model](#dependency-model)
 - [System Layout](#system-layout)
 - [Broker Modes](#broker-modes)
+- [Field Bridge Scenario](#field-bridge-scenario)
 - [Getting Started](#getting-started)
 - [Benchmarks](#benchmarks)
 - [Testing](#testing)
@@ -49,6 +52,38 @@ count.
 - Up to 8 concurrent clients by default, zero heap allocation in broker paths
 
 Not implemented: TLS, WebSocket.
+
+## Project Direction
+
+`mqtt_min_broker` is the reusable broker module repository. It supports two
+usage paths:
+
+1. **Zephyr broker module**: another Zephyr application can include this
+   repository as a module, enable `CONFIG_MQTT_MIN_BROKER`, bring up its own
+   network interface, then call the broker APIs directly. This path should stay
+   small and predictable.
+2. **Standalone/demo broker build**: this repository can build a simple broker
+   app for development and validation. Product-specific field applications
+   should live in a separate product repository and consume this module from
+   `deps/`.
+
+The Note 1 / Note 2 / Note 3 field bridge app should be a separate product repo
+that pins a `mqtt_min_broker` tag in `deps.json`. Core MQTT and P2P behavior
+should remain reusable by applications that only want to embed a broker.
+
+The repository split plan is documented here:
+[`docs/repository_split_plan.md`](docs/repository_split_plan.md)
+
+## Dependency Model
+
+Product applications should consume `mqtt_min_broker` from their own `deps/`
+directory and pin the module version in product-side `deps.json`. The broker
+module itself is versioned with Git tags. Product builds should use the pinned
+tag unless a broker issue is found, fixed in the module, released as a new tag,
+and then explicitly bumped in the product `deps.json`.
+
+The recommended product dependency layout is documented here:
+[`docs/product_dependency_model.md`](docs/product_dependency_model.md)
 
 ## System Layout
 
@@ -145,6 +180,19 @@ The current optimization loop is documented here:
 
 The shard-based ownership model is documented here:
 [`docs/p2p_shard_model.md`](docs/p2p_shard_model.md)
+
+## Field Bridge Scenario
+
+The target field scenario is a three-notebook setup where each notebook has a
+USB-connected ESP32 running `mqtt_min_broker`. Each notebook opens a local HTML
+page to configure WiFi and start its broker. Note 1 is used as the initial
+bridge setup point, connects to Note 2 and Note 3, and the brokers then form a
+P2P mesh. A 4510 device or data source publishes to the Note 1 broker, while
+users subscribed on Note 2 or Note 3 receive that information through broker
+routing.
+
+The scenario definition and required product gaps are documented here:
+[`docs/field_bridge_scenario.md`](docs/field_bridge_scenario.md)
 
 ## Getting Started
 
@@ -296,6 +344,47 @@ Enable with `DASHBOARD=1` at build time. Serves on port 8080:
 
 ## Zephyr / ESP32 Build
 
+### As a reusable Zephyr module
+
+Add this repository as a Zephyr module, then enable:
+
+```text
+CONFIG_MQTT_MIN_BROKER=y
+```
+
+The embedding application owns `main()`, WiFi/Ethernet provisioning, and any
+product UI. A minimal app flow is:
+
+```c
+#include "broker.h"
+#include "client.h"
+#include "p2p.h"
+
+int main(void)
+{
+    /* Bring up network interface here. */
+    client_pool_init();
+    broker_init();
+
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+    p2p_start();
+#endif
+
+    broker_run();
+    return 0;
+}
+```
+
+Enable `CONFIG_MQTT_P2P_DYNAMIC=y` only when the embedding app wants broker mesh
+routing.
+
+### As the standalone broker demo
+
+Use this path for broker development or smoke testing. The standalone build
+includes the built-in `main()` and WiFi startup. The full Note 1 / Note 2 /
+Note 3 field bridge product should live in a separate product repository that
+pins this module through `deps.json`.
+
 No Zephyr toolchain or SDK is needed on the host.
 
 ```bash
@@ -319,6 +408,8 @@ west espressif monitor
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `CONFIG_MQTT_MIN_BROKER` | n | Enable the reusable Zephyr broker module |
+| `CONFIG_MQTT_STANDALONE` | n | Include built-in `main()` and WiFi startup when used as a module |
 | `CONFIG_MQTT_AUTH_ENABLED` | n | Require username + password on CONNECT |
 | `CONFIG_MQTT_AUTH_USERNAME` | `"admin"` | Required username |
 | `CONFIG_MQTT_AUTH_PASSWORD` | `""` | Required password |
