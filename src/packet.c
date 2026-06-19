@@ -290,6 +290,9 @@ int packet_parse_subscribe(const mqtt_packet_t *pkt,
         qos[*count] = requested_qos;
         (*count)++;
     }
+    if (*count == 0) {
+        return -1;
+    }
     return 0;
 }
 
@@ -327,6 +330,9 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
             return -1;
         }
         (*count)++;
+    }
+    if (*count == 0) {
+        return -1;
     }
     return 0;
 }

@@ -613,15 +613,13 @@ static void test_parse_subscribe_edge(void)
     mqtt_packet_t pkt = {0};
     uint16_t pid; char topics[4][MQTT_TOPIC_MAX]; uint8_t qos[4]; uint8_t count;
 
-    /* empty payload (only packet_id) — count should be 0 */
+    /* empty payload (only packet_id) is malformed: at least one topic is required */
     pkt.type_flags = MQTT_SUBSCRIBE | 0x02;
     pkt.buf[0] = 0x00; pkt.buf[1] = 0x01; /* packet_id = 1 */
     pkt.buf_len = 2;
     count = 99;
-    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) == 0,
-           "subscribe empty payload parses ok");
-    ASSERT_EQ(count, 0, "subscribe empty payload: count = 0");
-    ASSERT_EQ(pid,   1, "subscribe empty payload: packet_id = 1");
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
+           "subscribe empty payload rejected");
 
     /* truncated packet (only 1 byte) */
     pkt.buf_len = 1;
@@ -714,6 +712,11 @@ static void test_parse_unsubscribe(void)
     pkt.buf_len = 1; /* only packet_id hi byte */
     ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4) < 0,
            "parse_unsubscribe truncated → error");
+
+    pkt.buf[0] = 0x00; pkt.buf[1] = 0x01;
+    pkt.buf_len = 2;
+    ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 4) < 0,
+           "unsubscribe empty payload rejected");
 
     /* single topic */
     p = 0;

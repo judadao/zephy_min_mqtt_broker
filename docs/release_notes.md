@@ -1,5 +1,18 @@
 # Release Notes
 
+## minmqtt-v0.1.12 (2026-06-19)
+
+Patch release focused on topic-list parser strictness.
+
+### Included
+- Reject SUBSCRIBE packets with no topic filters in `packet_parse_subscribe()`
+- Reject UNSUBSCRIBE packets with no topic filters in `packet_parse_unsubscribe()`
+- Add unit coverage for empty SUBSCRIBE and UNSUBSCRIBE payloads
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_malformed.sh && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.11 (2026-06-19)
 
 Patch release focused on parser-level protocol value validation.
