@@ -1114,8 +1114,20 @@ void p2p_peer_start(void)
     k_thread_create(&connect_thread, connect_stack, K_THREAD_STACK_SIZEOF(connect_stack),
                     connect_loop, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
 #else
-    pthread_create(&accept_thread, NULL, accept_main, NULL);
-    pthread_create(&connect_thread, NULL, connect_main, NULL);
+    {
+        int rc = pthread_create(&accept_thread, NULL, accept_main, NULL);
+        if (rc == 0) {
+            pthread_detach(accept_thread);
+        } else {
+            LOG_ERR("P2P accept thread create failed: %d", rc);
+        }
+        rc = pthread_create(&connect_thread, NULL, connect_main, NULL);
+        if (rc == 0) {
+            pthread_detach(connect_thread);
+        } else {
+            LOG_ERR("P2P connect thread create failed: %d", rc);
+        }
+    }
 #endif
     LOG_INF("P2P peer TCP enabled on port %d", P2P_PORT);
 }

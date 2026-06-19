@@ -143,8 +143,20 @@ void p2p_start(void)
     k_thread_create(&listen_thread, listen_stack, K_THREAD_STACK_SIZEOF(listen_stack),
                     p2p_listen_loop, NULL, NULL, NULL, 7, 0, K_NO_WAIT);
 #else
-    pthread_create(&announce_thread, NULL, announce_main, NULL);
-    pthread_create(&listen_thread, NULL, listen_main, NULL);
+    {
+        int rc = pthread_create(&announce_thread, NULL, announce_main, NULL);
+        if (rc == 0) {
+            pthread_detach(announce_thread);
+        } else {
+            LOG_ERR("P2P discovery announce thread failed: %d", rc);
+        }
+        rc = pthread_create(&listen_thread, NULL, listen_main, NULL);
+        if (rc == 0) {
+            pthread_detach(listen_thread);
+        } else {
+            LOG_ERR("P2P discovery listen thread failed: %d", rc);
+        }
+    }
 #endif
     p2p_peer_start();
     LOG_INF("P2P dynamic broker discovery enabled on UDP %d", P2P_DISCOVERY_PORT);

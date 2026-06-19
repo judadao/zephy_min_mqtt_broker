@@ -1,5 +1,22 @@
 # Release Notes
 
+## minmqtt-v0.1.14 (2026-06-19)
+
+Patch release focused on P2P startup stability.
+
+### Included
+- Check POSIX P2P discovery announce/listen `pthread_create()` results and log
+  startup failures
+- Check POSIX P2P TCP accept/connect `pthread_create()` results and log startup
+  failures
+- Detach long-running POSIX P2P background threads after successful startup
+
+### Validation
+- `make -B -f Makefile.linux P2P=1 all`
+- `make -B -f Makefile.linux P2P=1 STATIC_SEEDS_ONLY=1 all`
+- `./scripts/test_p2p_dynamic.sh`
+- `./scripts/test_p2p_static_seeds_only.sh`
+
 ## minmqtt-v0.1.13 (2026-06-19)
 
 Patch release focused on static-seed P2P stability.
