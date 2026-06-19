@@ -1,5 +1,20 @@
 # Release Notes
 
+## minmqtt-v0.1.15 (2026-06-19)
+
+Patch release focused on optional dashboard stability.
+
+### Included
+- Send HTTP dashboard responses with a send-all loop so partial socket writes do
+  not truncate JSON or HTML responses
+- Validate dashboard `listen()` and POSIX server-thread startup errors
+- Log dashboard startup failure from `main()` while keeping the MQTT broker
+  available
+
+### Validation
+- `make -B -f Makefile.linux DASHBOARD=1 all`
+- `./scripts/test_dashboard.sh`
+
 ## minmqtt-v0.1.14 (2026-06-19)
 
 Patch release focused on P2P startup stability.

@@ -7,11 +7,12 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
-Latest module release: `minmqtt-v0.1.14` (2026-06-19).
+Latest module release: `minmqtt-v0.1.15` (2026-06-19).
 
 Recent hardening releases tightened MQTT packet helper behavior without changing
 the public module shape:
 
+- `minmqtt-v0.1.15`: dashboard HTTP sends handle partial writes and startup errors
 - `minmqtt-v0.1.14`: P2P background thread startup reports pthread failures
 - `minmqtt-v0.1.13`: static seed-only P2P mode skips UDP discovery sockets
 - `minmqtt-v0.1.12`: SUBSCRIBE and UNSUBSCRIBE parsers reject empty topic lists
