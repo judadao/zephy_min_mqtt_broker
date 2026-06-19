@@ -168,6 +168,9 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
             return -1;
         }
     }
+    if (pos != len) {
+        return -1;
+    }
     return 0;
 }
 

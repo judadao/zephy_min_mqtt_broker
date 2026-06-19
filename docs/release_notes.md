@@ -1,5 +1,18 @@
 # Release Notes
 
+## minmqtt-v0.1.2 (2026-06-19)
+
+Patch release focused on CONNECT parser strictness.
+
+### Included
+- Reject CONNECT packets with trailing bytes after the declared payload fields
+- Add unit coverage for trailing bytes after basic CONNECT and auth CONNECT
+- Clean up completed TODO plan items for public API docs and P2P snapshots
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_connect_edge.sh`
+
 ## minmqtt-v0.1.1 (2026-06-19)
 
 Patch release focused on MQTT parser hardening, reusable module observability,

@@ -30,9 +30,9 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 ## Next Iteration Plan
 
-- [ ] Add header-level public API docs for broker/session/topic lifecycle and embedder responsibilities
+- [x] Add header-level public API docs for broker/session/topic lifecycle and embedder responsibilities
 - [x] Add a Zephyr module smoke script or CI job for `CONFIG_MQTT_MIN_BROKER=y`
-- [ ] Add P2P peer/subscription snapshot APIs for dashboard or embedder observability
+- [x] Add P2P peer/subscription snapshot APIs for dashboard or embedder observability
 - [x] Add malformed-packet integration coverage for SUBSCRIBE requested-QoS parser edge cases
 - [x] Review remaining fixed-size buffers for explicit overflow test coverage
 

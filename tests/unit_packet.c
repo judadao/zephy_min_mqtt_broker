@@ -785,6 +785,38 @@ static void test_parse_connect_edge(void)
         ASSERT(packet_parse_connect(&pkt, &conn) == 0,
                "correct 'MQTT' proto name + level 4: parse succeeds");
     }
+
+    /* CONNECT payload must not include bytes after the declared fields */
+    {
+        uint8_t trailing[] = {
+            0x00, 0x04, 'M', 'Q', 'T', 'T',
+            0x04, 0x02, 0x00, 0x3C,
+            0x00, 0x02, 'm', 'n',
+            0x00
+        };
+        pkt.buf_len = sizeof(trailing);
+        memcpy(pkt.buf, trailing, sizeof(trailing));
+        memset(&conn, 0, sizeof(conn));
+        ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+               "CONNECT with trailing bytes rejected");
+    }
+
+    /* Same check after optional username/password fields */
+    {
+        uint8_t trailing_auth[] = {
+            0x00, 0x04, 'M', 'Q', 'T', 'T',
+            0x04, 0xC2, 0x00, 0x3C,
+            0x00, 0x02, 'o', 'p',
+            0x00, 0x01, 'u',
+            0x00, 0x01, 'p',
+            0x99
+        };
+        pkt.buf_len = sizeof(trailing_auth);
+        memcpy(pkt.buf, trailing_auth, sizeof(trailing_auth));
+        memset(&conn, 0, sizeof(conn));
+        ASSERT(packet_parse_connect(&pkt, &conn) < 0,
+               "CONNECT with trailing bytes after auth rejected");
+    }
 }
 
 /* ── main ──────────────────────────────────────────────────────────────────── */
