@@ -86,6 +86,14 @@ typedef struct {
 } __attribute__((packed)) p2p_sub_msg_t;
 
 typedef struct {
+    uint8_t  node_id[P2P_NODE_ID_LEN];
+    uint32_t addr;
+    uint16_t p2p_port;
+    uint8_t  role;
+    uint8_t  outbound;
+} p2p_peer_snapshot_t;
+
+typedef struct {
     uint8_t  origin_id[P2P_NODE_ID_LEN];
     uint16_t seq;
     char     topic[MQTT_TOPIC_MAX];
@@ -106,6 +114,14 @@ typedef struct {
  */
 void p2p_start(void);
 void p2p_peer_start(void);
+
+/*
+ * Copy currently connected P2P TCP peers into out. The caller supplies storage
+ * and capacity; the return value is the number of entries written. Snapshot
+ * data is copied while holding the peer table lock and remains valid after the
+ * call returns.
+ */
+int p2p_peer_snapshot(p2p_peer_snapshot_t *out, int max);
 
 /*
  * Local MQTT event hooks. topic.c calls these when local subscriptions or

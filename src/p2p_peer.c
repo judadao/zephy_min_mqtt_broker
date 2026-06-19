@@ -266,18 +266,6 @@ static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE
     return ok;
 }
 
-static int send_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                         const p2p_publish_msg_t *msg)
-{
-    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
-    uint16_t frame_len;
-
-    if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
-        return 0;
-    }
-    return send_prebuilt_publish_to_node_unlocked(node_id, frame, frame_len);
-}
-
 static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
                                                  const uint8_t *frame,
                                                  uint16_t frame_len,
@@ -990,6 +978,30 @@ void p2p_peer_start(void)
     LOG_INF("P2P peer TCP enabled on port %d", P2P_PORT);
 }
 
+int p2p_peer_snapshot(p2p_peer_snapshot_t *out, int max)
+{
+    int n = 0;
+
+    if (!out || max <= 0) {
+        return 0;
+    }
+
+    plat_mutex_lock(&peer_lock);
+    for (int i = 0; i < P2P_PEER_MAX && n < max; i++) {
+        if (!conns[i].in_use || !conns[i].connected) {
+            continue;
+        }
+        memcpy(out[n].node_id, conns[i].node_id, P2P_NODE_ID_LEN);
+        out[n].addr = conns[i].addr;
+        out[n].p2p_port = conns[i].p2p_port;
+        out[n].role = conns[i].role;
+        out[n].outbound = conns[i].outbound;
+        n++;
+    }
+    plat_mutex_unlock(&peer_lock);
+    return n;
+}
+
 static void send_sub_to_peers_by_role(const p2p_sub_msg_t *msg, uint8_t type,
                                       const uint8_t *exclude_node_id,
                                       int routers_only)
@@ -1109,4 +1121,3 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
         }
     }
 }
-

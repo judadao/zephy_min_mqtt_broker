@@ -144,7 +144,6 @@ static void shard_key_from_str(const char *src, char out[MQTT_TOPIC_MAX])
 {
     size_t len = 0;
     int slashes = 0;
-    int cut = 0;
 
     out[0] = '\0';
     if (!src || src[0] == '\0') {
@@ -153,14 +152,12 @@ static void shard_key_from_str(const char *src, char out[MQTT_TOPIC_MAX])
 
     for (const char *p = src; *p && len < MQTT_TOPIC_MAX - 1; p++) {
         if (*p == '+' || *p == '#') {
-            cut = 1;
             break;
         }
         out[len++] = *p;
         if (*p == '/') {
             slashes++;
             if (slashes >= P2P_SHARD_KEY_LEVELS) {
-                cut = 1;
                 break;
             }
         }
