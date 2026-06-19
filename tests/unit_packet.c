@@ -435,6 +435,10 @@ static void test_parse_publish_null_byte(void)
     mqtt_publish_t pub = {0};
     ASSERT(packet_parse_publish(&pkt, &pub) < 0,
            "PUBLISH with null byte in topic rejected (MQTT §4.7.3)");
+    ASSERT(packet_parse_publish(NULL, &pub) < 0,
+           "parse_publish NULL packet returns error");
+    ASSERT(packet_parse_publish(&pkt, NULL) < 0,
+           "parse_publish NULL output returns error");
 
     /* topic without null byte should parse fine */
     uint8_t ok_topic[] = { 'a', 'b', 'c', '/', 'x' };
@@ -532,6 +536,10 @@ static void test_parse_connect(void)
     pkt.buf_len = 5;
     memcpy(pkt.buf, body, 5);
     ASSERT(packet_parse_connect(&pkt, &conn) < 0, "parse_connect truncated → error");
+    ASSERT(packet_parse_connect(NULL, &conn) < 0,
+           "parse_connect NULL packet returns error");
+    ASSERT(packet_parse_connect(&pkt, NULL) < 0,
+           "parse_connect NULL output returns error");
 }
 
 static void test_parse_subscribe(void)
@@ -568,6 +576,16 @@ static void test_parse_subscribe(void)
     ASSERT_EQ(qos[0], 1, "subscribe qos[0] = 1");
     ASSERT(strcmp(topics[1], "x/+") == 0, "subscribe topic[1] = x/+");
     ASSERT_EQ(qos[1], 0, "subscribe qos[1] = 0");
+    ASSERT(packet_parse_subscribe(NULL, &pid, topics, qos, &count, 4) < 0,
+           "parse_subscribe NULL packet returns error");
+    ASSERT(packet_parse_subscribe(&pkt, NULL, topics, qos, &count, 4) < 0,
+           "parse_subscribe NULL packet_id returns error");
+    ASSERT(packet_parse_subscribe(&pkt, &pid, NULL, qos, &count, 4) < 0,
+           "parse_subscribe NULL topics returns error");
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, NULL, &count, 4) < 0,
+           "parse_subscribe NULL qos returns error");
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, NULL, 4) < 0,
+           "parse_subscribe NULL count returns error");
 }
 
 static void test_parse_subscribe_edge(void)
@@ -703,6 +721,14 @@ static void test_parse_unsubscribe(void)
         ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 1) < 0,
                "unsubscribe over max_topics rejected");
     }
+    ASSERT(packet_parse_unsubscribe(NULL, &pid, topics, &count, 4) < 0,
+           "parse_unsubscribe NULL packet returns error");
+    ASSERT(packet_parse_unsubscribe(&pkt, NULL, topics, &count, 4) < 0,
+           "parse_unsubscribe NULL packet_id returns error");
+    ASSERT(packet_parse_unsubscribe(&pkt, &pid, NULL, &count, 4) < 0,
+           "parse_unsubscribe NULL topics returns error");
+    ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, NULL, 4) < 0,
+           "parse_unsubscribe NULL count returns error");
 }
 
 static void test_parse_connect_edge(void)

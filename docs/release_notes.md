@@ -1,5 +1,19 @@
 # Release Notes
 
+## minmqtt-v0.1.10 (2026-06-19)
+
+Patch release focused on parser argument validation.
+
+### Included
+- Reject NULL arguments in CONNECT and PUBLISH parsers
+- Reject NULL packet, output, topic, QoS, and count arguments in SUBSCRIBE parser
+- Reject NULL packet, output, topic, and count arguments in UNSUBSCRIBE parser
+- Add unit coverage for parser NULL argument handling
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.9 (2026-06-19)
 
 Patch release focused on Remaining Length helper argument validation.

@@ -113,9 +113,16 @@ static int bounded_strlen(const char *s, size_t cap, size_t *out_len)
 
 int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
 {
-    const uint8_t *b   = pkt->buf;
-    size_t         len = pkt->buf_len;
+    const uint8_t *b;
+    size_t         len;
     size_t         pos = 0;
+
+    if (!pkt || !out) {
+        return -1;
+    }
+
+    b   = pkt->buf;
+    len = pkt->buf_len;
 
     /* protocol name: MQTT 3.1.1 §3.1.2.1 — must be exactly "MQTT" */
     char proto[8] = {0};
@@ -199,9 +206,16 @@ int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
 
 int packet_parse_publish(const mqtt_packet_t *pkt, mqtt_publish_t *out)
 {
-    const uint8_t *b   = pkt->buf;
-    size_t         len = pkt->buf_len;
+    const uint8_t *b;
+    size_t         len;
     size_t         pos = 0;
+
+    if (!pkt || !out) {
+        return -1;
+    }
+
+    b   = pkt->buf;
+    len = pkt->buf_len;
 
     out->dup    = (pkt->type_flags >> 3) & 0x01;
     out->qos    = (pkt->type_flags >> 1) & 0x03;
@@ -232,9 +246,16 @@ int packet_parse_subscribe(const mqtt_packet_t *pkt,
                             char topics[][MQTT_TOPIC_MAX],
                             uint8_t *qos, uint8_t *count, uint8_t max_topics)
 {
-    const uint8_t *b   = pkt->buf;
-    size_t         len = pkt->buf_len;
+    const uint8_t *b;
+    size_t         len;
     size_t         pos = 0;
+
+    if (!pkt || !packet_id || !topics || !qos || !count) {
+        return -1;
+    }
+
+    b   = pkt->buf;
+    len = pkt->buf_len;
 
     if (pos + 2 > len) {
         return -1;
@@ -268,9 +289,16 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
                               char topics[][MQTT_TOPIC_MAX],
                               uint8_t *count, uint8_t max_topics)
 {
-    const uint8_t *b   = pkt->buf;
-    size_t         len = pkt->buf_len;
+    const uint8_t *b;
+    size_t         len;
     size_t         pos = 0;
+
+    if (!pkt || !packet_id || !topics || !count) {
+        return -1;
+    }
+
+    b   = pkt->buf;
+    len = pkt->buf_len;
 
     if (pos + 2 > len) {
         return -1;
