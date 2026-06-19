@@ -217,7 +217,10 @@ int packet_parse_subscribe(const mqtt_packet_t *pkt,
     pos += 2;
     *count = 0;
 
-    while (pos < len && *count < max_topics) {
+    while (pos < len) {
+        if (*count >= max_topics) {
+            return -1;
+        }
         if (read_str(b, len, &pos, topics[*count], MQTT_TOPIC_MAX) < 0) {
             return -1;
         }
@@ -250,7 +253,10 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
     pos += 2;
     *count = 0;
 
-    while (pos < len && *count < max_topics) {
+    while (pos < len) {
+        if (*count >= max_topics) {
+            return -1;
+        }
         if (read_str(b, len, &pos, topics[*count], MQTT_TOPIC_MAX) < 0) {
             return -1;
         }

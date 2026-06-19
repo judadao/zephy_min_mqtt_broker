@@ -34,7 +34,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 - [x] Add a Zephyr module smoke script or CI job for `CONFIG_MQTT_MIN_BROKER=y`
 - [ ] Add P2P peer/subscription snapshot APIs for dashboard or embedder observability
 - [x] Add malformed-packet integration coverage for SUBSCRIBE requested-QoS parser edge cases
-- [ ] Review remaining fixed-size buffers for explicit overflow test coverage
+- [x] Review remaining fixed-size buffers for explicit overflow test coverage
 
 ## Test Gaps
 

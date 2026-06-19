@@ -531,6 +531,18 @@ static void test_parse_subscribe_edge(void)
     count = 0;
     ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 4) < 0,
            "subscribe qos=3 rejected");
+
+    /* more topic filters than caller capacity must be rejected, not truncated */
+    static const uint8_t body_too_many[] = {
+        0x00, 0x07,
+        0x00, 0x01, 'a', 0x00,
+        0x00, 0x01, 'b', 0x00
+    };
+    pkt.buf_len = sizeof(body_too_many);
+    memcpy(pkt.buf, body_too_many, sizeof(body_too_many));
+    count = 0;
+    ASSERT(packet_parse_subscribe(&pkt, &pid, topics, qos, &count, 1) < 0,
+           "subscribe over max_topics rejected");
 }
 
 static void test_parse_unsubscribe(void)
@@ -595,6 +607,20 @@ static void test_parse_unsubscribe(void)
     ASSERT_EQ(pid,   99,                     "unsubscribe single pkt_id = 99");
     ASSERT_EQ(count, 1,                      "unsubscribe single count = 1");
     ASSERT(strcmp(topics[0], t2) == 0,       "unsubscribe single topic correct");
+
+    /* more topic filters than caller capacity must be rejected, not truncated */
+    {
+        static const uint8_t body_too_many[] = {
+            0x00, 0x04,
+            0x00, 0x01, 'a',
+            0x00, 0x01, 'b'
+        };
+        pkt.buf_len = sizeof(body_too_many);
+        memcpy(pkt.buf, body_too_many, sizeof(body_too_many));
+        count = 0;
+        ASSERT(packet_parse_unsubscribe(&pkt, &pid, topics, &count, 1) < 0,
+               "unsubscribe over max_topics rejected");
+    }
 }
 
 static void test_parse_connect_edge(void)
