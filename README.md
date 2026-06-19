@@ -7,6 +7,25 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
+Latest module release: `minmqtt-v0.1.10` (2026-06-19).
+
+Recent hardening releases tightened MQTT packet helper behavior without changing
+the public module shape:
+
+- `minmqtt-v0.1.10`: parser APIs reject NULL arguments for CONNECT, PUBLISH,
+  SUBSCRIBE, and UNSUBSCRIBE helpers
+- `minmqtt-v0.1.9`: Remaining Length encode/decode helpers reject NULL
+  arguments
+- `minmqtt-v0.1.8`: CONNACK and SUBACK builders reject invalid return/session
+  combinations
+
+Validation for the latest release:
+
+```bash
+make -f Makefile.linux unit-tests
+make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh
+```
+
 Recent ESP32-like workload, `ESP32_BROKER_COUNTS="1 5" ESP32_TOPICS=100`
 `ESP32_MESSAGES=1000` with distributed publishers enabled.
 
@@ -45,7 +64,8 @@ count.
 - Retained message store
 - Persistent sessions with offline message queuing
 - QoS-1/2 inflight retry with DUP flag
-- Protocol hardening for malformed packets and unsupported versions
+- Protocol hardening for malformed packets, unsupported versions, and invalid
+  packet helper arguments
 - Optional username/password auth at build time
 - Optional HTTP status dashboard and REST API on Linux
 - Optional dynamic broker P2P mode with router election and inter-node routing
@@ -308,7 +328,7 @@ plus node-down and restart faults, use:
 ./scripts/test_p2p_dynamic.sh
 ```
 
-Unit tests run with `make -f Makefile.linux test`:
+Unit tests run with `make -f Makefile.linux unit-tests`:
 - `tests/unit_packet.c`
 - `tests/unit_session.c`
 - `tests/unit_topic.c`
@@ -450,11 +470,11 @@ date; an unversioned `latest` symlink is also created.
 
 | Symlink (always latest) | Stamped file | Platform |
 |------------------------|--------------|----------|
-| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.0_20260615` | Linux |
-| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.0_20260615` | Linux |
-| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.0_20260615.bin` | Zephyr/ESP32 |
-| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.0_20260615.elf` | Zephyr/ESP32 |
-| `build_out/zephyr.map` | `build_out/zephyr_v0.1.0_20260615.map` | Zephyr/ESP32 |
+| `build_out/mqtt_broker` | `build_out/mqtt_broker_v0.1.10_20260619` | Linux |
+| `build_out/mqtt_cli` | `build_out/mqtt_cli_v0.1.10_20260619` | Linux |
+| `build_out/zephyr.bin` | `build_out/zephyr_v0.1.10_20260619.bin` | Zephyr/ESP32 |
+| `build_out/zephyr.elf` | `build_out/zephyr_v0.1.10_20260619.elf` | Zephyr/ESP32 |
+| `build_out/zephyr.map` | `build_out/zephyr_v0.1.10_20260619.map` | Zephyr/ESP32 |
 
 Version is read from the Zephyr-format `VERSION` file. Override at build time:
 
