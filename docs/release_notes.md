@@ -1,5 +1,17 @@
 # Release Notes
 
+## minmqtt-v0.1.4 (2026-06-19)
+
+Patch release focused on packet identifier validation for MQTT ACK flows.
+
+### Included
+- Close client connections on PUBACK/PUBREC/PUBREL/PUBCOMP with packet_id=0
+- Add malformed-packet integration coverage for ACK packet_id=0 cases
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_malformed.sh`
+
 ## minmqtt-v0.1.3 (2026-06-19)
 
 Patch release focused on MQTT fixed-header protocol hardening.

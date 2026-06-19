@@ -278,6 +278,27 @@ void client_thread_fn(void *p1, void *p2, void *p3)
             }
         }
 
+        /* MQTT §2.3.1: packets carrying packet identifiers MUST NOT use id 0 */
+        switch (type) {
+        case MQTT_PUBACK:
+        case MQTT_PUBREC:
+        case MQTT_PUBREL:
+        case MQTT_PUBCOMP: {
+            uint16_t packet_id = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+            if (packet_id == 0) {
+                LOG_WRN("client[%d] packet type=0x%02x with packet_id=0 — closing",
+                        c->slot, type);
+                c->state = CLIENT_STATE_DISCONNECTING;
+            }
+            break;
+        }
+        default:
+            break;
+        }
+        if (c->state != CLIENT_STATE_CONNECTED) {
+            break;
+        }
+
         switch (type) {
         case MQTT_CONNECT:
             /* second CONNECT is a protocol error per §3.1.0 */

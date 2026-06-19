@@ -712,6 +712,58 @@ else
     _ok "reserved packet type test skipped (python3 not available)"
 fi
 
+# ── Test 18: ACK packet identifiers must not be zero ─────────────────────────
+echo "--- Test 18: ACK packets with packet_id=0 ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/malformed_t18.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def send_zero_id(cid, frame, name):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    s.connect(('127.0.0.1', 1883))
+    s.sendall(make_connect(cid))
+    s.recv(4)  # CONNACK
+
+    time.sleep(0.1)
+    s.sendall(frame)
+    time.sleep(0.3)
+    try:
+        data = s.recv(4)
+        if len(data) == 0:
+            print(f"OK: closed on {name} packet_id=0")
+        else:
+            print(f"UNEXPECTED: {name} got {data.hex()}")
+    except (ConnectionResetError, BrokenPipeError):
+        print(f"OK: closed on {name} packet_id=0 (reset)")
+    except socket.timeout:
+        print(f"TIMEOUT: did not close on {name} packet_id=0")
+    s.close()
+
+send_zero_id('mal_t18_puback', b'\x40\x02\x00\x00', 'PUBACK')
+send_zero_id('mal_t18_pubrec', b'\x50\x02\x00\x00', 'PUBREC')
+send_zero_id('mal_t18_pubrel', b'\x62\x02\x00\x00', 'PUBREL')
+send_zero_id('mal_t18_pubcomp', b'\x70\x02\x00\x00', 'PUBCOMP')
+PYEOF
+    OUT="$(cat /tmp/malformed_t18.out)"
+    echo "$OUT" | sed 's/^/  result: /'
+    if echo "$OUT" | grep -qi "UNEXPECTED\|TIMEOUT"; then
+        _fail "broker did not close on ACK packet_id=0"
+    else
+        _ok "broker closes connection on ACK packet_id=0"
+    fi
+else
+    _ok "ACK packet_id=0 test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
