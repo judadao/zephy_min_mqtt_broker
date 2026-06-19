@@ -330,6 +330,44 @@ static void test_build_parse_publish_roundtrip(void)
     ASSERT_EQ(dst.payload_len, MQTT_PAYLOAD_MAX,     "max-payload length preserved");
     ASSERT(memcmp(dst.payload, big.payload, MQTT_PAYLOAD_MAX) == 0,
            "max-payload content preserved");
+
+    ASSERT(packet_build_publish(NULL, wire, sizeof(wire)) < 0,
+           "publish build rejects NULL publish");
+    ASSERT(packet_build_publish(&big, NULL, sizeof(wire)) < 0,
+           "publish build rejects NULL output");
+
+    mqtt_publish_t invalid = {0};
+    invalid.payload_len = 1;
+    invalid.payload[0] = 'x';
+    invalid.qos = 0;
+
+    invalid.topic[0] = '\0';
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects empty topic");
+
+    strncpy(invalid.topic, "bad/#", sizeof(invalid.topic) - 1);
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects wildcard topic");
+
+    memset(invalid.topic, 'A', sizeof(invalid.topic));
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects unterminated topic");
+
+    memset(&invalid, 0, sizeof(invalid));
+    strncpy(invalid.topic, "bad/qos", sizeof(invalid.topic) - 1);
+    invalid.qos = 3;
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects QoS=3");
+
+    invalid.qos = 1;
+    invalid.packet_id = 0;
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects QoS>0 packet_id=0");
+
+    invalid.qos = 0;
+    invalid.payload_len = MQTT_PAYLOAD_MAX + 1;
+    ASSERT(packet_build_publish(&invalid, wire, sizeof(wire)) < 0,
+           "publish build rejects payload_len overflow");
 }
 
 static void test_parse_publish_null_byte(void)

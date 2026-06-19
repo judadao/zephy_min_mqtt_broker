@@ -1,5 +1,18 @@
 # Release Notes
 
+## minmqtt-v0.1.6 (2026-06-19)
+
+Patch release focused on defensive PUBLISH frame construction.
+
+### Included
+- Reject invalid `packet_build_publish()` inputs before encoding
+- Avoid unbounded topic string reads in PUBLISH builder
+- Add unit coverage for invalid topic, QoS, packet-id, payload length, and NULL arguments
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.5 (2026-06-19)
 
 Patch release focused on UNSUBSCRIBE topic-filter validation.

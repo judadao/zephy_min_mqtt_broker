@@ -86,6 +86,20 @@ static size_t write_str(uint8_t *buf, size_t pos, const char *s, uint16_t len)
     return pos + 2 + len;
 }
 
+static int bounded_strlen(const char *s, size_t cap, size_t *out_len)
+{
+    size_t len = 0;
+
+    while (len < cap && s[len] != '\0') {
+        len++;
+    }
+    if (len == cap) {
+        return -1;
+    }
+    *out_len = len;
+    return 0;
+}
+
 /* ---------- parse incoming ---------- */
 
 int packet_parse_connect(const mqtt_packet_t *pkt, mqtt_connect_t *out)
@@ -310,13 +324,25 @@ int packet_build_unsuback(uint16_t packet_id, uint8_t *out, size_t out_cap)
 
 int packet_build_publish(const mqtt_publish_t *pub, uint8_t *out, size_t out_cap)
 {
-    uint16_t topic_len  = (uint16_t)strlen(pub->topic);
+    size_t   topic_len_sz;
+    if (!pub || !out) {
+        return -1;
+    }
+    if (bounded_strlen(pub->topic, sizeof(pub->topic), &topic_len_sz) < 0 ||
+        topic_len_sz == 0 || strpbrk(pub->topic, "#+") ||
+        pub->qos > 2 || (pub->qos > 0 && pub->packet_id == 0) ||
+        pub->payload_len > sizeof(pub->payload)) {
+        return -1;
+    }
+    uint16_t topic_len  = (uint16_t)topic_len_sz;
     size_t   var_hdr_sz = 2 + topic_len + (pub->qos > 0 ? 2 : 0);
     uint32_t rem_len    = (uint32_t)(var_hdr_sz + pub->payload_len);
 
     uint8_t  rem_enc[4];
     size_t   rem_bytes;
-    packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes);
+    if (packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes) < 0) {
+        return -1;
+    }
 
     size_t total = 1 + rem_bytes + rem_len;
     if (out_cap < total) {
