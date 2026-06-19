@@ -342,7 +342,8 @@ static int cmd_sub(const char *host, uint16_t port,
         fprintf(stderr, "error: subscription refused by broker\n"); close(fd); return 1;
     }
 
-    fprintf(stderr, "subscribed to '%s' (qos %u) — Ctrl-C to stop\n", topic, qos);
+    fprintf(stderr, "subscribed to '%s' (qos %u, granted %u) — Ctrl-C to stop\n",
+            topic, qos, pkt.buf[2] & 0x03);
     signal(SIGINT,  on_sigint);
     signal(SIGTERM, on_sigint); /* clean DISCONNECT on kill */
 

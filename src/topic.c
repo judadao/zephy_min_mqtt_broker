@@ -528,7 +528,12 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
                 if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
                     continue;
                 }
-                targets[target_count++] = subs[idx].client;
+                /* dedup: skip if client already queued */
+                int dup = 0;
+                for (int d = 0; d < target_count; d++) {
+                    if (targets[d] == subs[idx].client) { dup = 1; break; }
+                }
+                if (!dup) targets[target_count++] = subs[idx].client;
             }
             for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
                 if (!subs[idx].in_use) {
@@ -537,7 +542,12 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
                 if (!topic_match(subs[idx].filter, pub->topic)) {
                     continue;
                 }
-                targets[target_count++] = subs[idx].client;
+                /* dedup: skip if client already queued */
+                int dup = 0;
+                for (int d = 0; d < target_count; d++) {
+                    if (targets[d] == subs[idx].client) { dup = 1; break; }
+                }
+                if (!dup) targets[target_count++] = subs[idx].client;
             }
             plat_mutex_unlock(&topic_lock);
 
@@ -548,18 +558,35 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
             plat_mutex_unlock(&topic_lock);
         }
     } else {
+        client_t *seen[TOPIC_MAX_SUBS];
+        int seen_count = 0;
+
         for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
             if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
                 continue;
             }
-            deliver_to_subscriber_locked(pub, idx);
+            int dup = 0;
+            for (int d = 0; d < seen_count; d++) {
+                if (seen[d] == subs[idx].client) { dup = 1; break; }
+            }
+            if (!dup) {
+                seen[seen_count++] = subs[idx].client;
+                deliver_to_subscriber_locked(pub, idx);
+            }
         }
 
         for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
             if (!subs[idx].in_use || !topic_match(subs[idx].filter, pub->topic)) {
                 continue;
             }
-            deliver_to_subscriber_locked(pub, idx);
+            int dup = 0;
+            for (int d = 0; d < seen_count; d++) {
+                if (seen[d] == subs[idx].client) { dup = 1; break; }
+            }
+            if (!dup) {
+                seen[seen_count++] = subs[idx].client;
+                deliver_to_subscriber_locked(pub, idx);
+            }
         }
         plat_mutex_unlock(&topic_lock);
     }

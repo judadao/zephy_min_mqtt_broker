@@ -79,6 +79,8 @@ run_suite "malformed packets"            "$SCRIPT_DIR/test_malformed.sh"
 run_suite "large payloads"               "$SCRIPT_DIR/test_large_payload.sh"
 run_suite "auth (username/password)"     "$SCRIPT_DIR/test_auth.sh"
 run_suite "stress"                       "$SCRIPT_DIR/test_stress.sh"
+run_suite "compliance (§3.9.3/§3.3.1.3/§3.1.2.4/§4.7.2)" \
+                                         "$SCRIPT_DIR/test_compliance.sh"
 
 # Slow suites (keepalive needs ~20s, inflight retry ~20s)
 if [ $RUN_ALL -eq 1 ]; then

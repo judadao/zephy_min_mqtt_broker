@@ -30,7 +30,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 ## Test Gaps
 
-- [ ] Verify SUBACK returns the correct granted-QoS byte (0x00/0x01/0x02) for each QoS level subscribed (§3.9.3)
-- [ ] Verify retained message is cleared when a PUBLISH with zero-length payload is sent to the topic (§3.3.1.3)
-- [ ] Verify client-ID takeover with clean_session=1 discards any QoS 2 inflight state from the previous persistent session
-- [ ] Verify overlapping subscriptions deliver only one message copy to the subscribing client (§4.7.2)
+- [x] Verify SUBACK returns the correct granted-QoS byte (0x00/0x01/0x02) for each QoS level subscribed (§3.9.3)
+- [x] Verify retained message is cleared when a PUBLISH with zero-length payload is sent to the topic (§3.3.1.3)
+- [x] Verify client-ID takeover with clean_session=1 discards any QoS 2 inflight state from the previous persistent session
+- [x] Verify overlapping subscriptions deliver only one message copy to the subscribing client (§4.7.2)
