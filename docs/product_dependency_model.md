@@ -42,7 +42,7 @@ Recommended product-side `deps.json` shape:
   "deps": {
     "mqtt_min_broker": {
       "repo": "git@example.com:mqtt_min_broker.git",
-      "version": "minmqtt-v0.1.0",
+      "version": "minmqtt-v0.1.12",
       "path": "deps/mqtt_min_broker"
     }
   },
@@ -70,8 +70,8 @@ Rules:
 product bridge tags are not confused with broker module tags:
 
 ```bash
-git tag minmqtt-v0.1.0
-git push origin minmqtt-v0.1.0
+git tag minmqtt-v0.1.12
+git push origin minmqtt-v0.1.12
 ```
 
 Use a new tag when one of these changes:
@@ -85,8 +85,16 @@ Use a new tag when one of these changes:
 The product app updates only after the module tag exists:
 
 ```json
-"version": "minmqtt-v0.1.1"
+"version": "minmqtt-v0.1.12"
 ```
+
+## Downstream Status
+
+Known downstream consumer:
+
+| Product repo | Product tag | Broker tag | Status |
+|--------------|-------------|------------|--------|
+| `mqtt_field_bridge_app` | `bridge-v0.1.1` | `minmqtt-v0.1.12` | Synced and validated with Linux unit, integration, reconnect stress, and throughput stress tests |
 
 ## Build flow
 
@@ -104,9 +112,6 @@ after a new tag is selected.
 
 ## TODO
 
-- Add `scripts/sync_deps.sh` for product repos.
-- Add `scripts/build_product.sh` for the standalone field app repo/layer.
-- Create the separate field app repository.
 - Add CI check that product `deps.json` references an existing broker tag.
 - Add release notes per broker tag so product updates can review behavior
   changes before bumping.
