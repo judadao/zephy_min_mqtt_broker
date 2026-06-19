@@ -536,6 +536,59 @@ else
     _ok "UNSUBSCRIBE empty test skipped (python3 not available)"
 fi
 
+# ── Test 11: UNSUBSCRIBE with invalid topic filters closes connection ────────
+echo "--- Test 11: UNSUBSCRIBE with invalid topic filters ---"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF' >/tmp/edge_t11.out 2>&1 || true
+import socket, struct, time
+
+def make_connect(cid):
+    c = cid.encode()
+    rem = 6 + 1 + 1 + 2 + 2 + len(c)
+    pkt  = b'\x10' + bytes([rem])
+    pkt += b'\x00\x04MQTT\x04\x02\x00\x00'
+    pkt += struct.pack('>H', len(c)) + c
+    return pkt
+
+def send_unsub(cid, topic):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(3)
+    s.connect(('127.0.0.1', 1883))
+    s.sendall(make_connect(cid))
+    s.recv(4)  # CONNACK
+
+    t = topic.encode()
+    body = b'\x00\x05' + struct.pack('>H', len(t)) + t
+    pkt = b'\xa2' + bytes([len(body)]) + body
+    time.sleep(0.1)
+    s.sendall(pkt)
+    time.sleep(0.3)
+    try:
+        data = s.recv(4)
+        if len(data) == 0:
+            print(f"OK: broker closed connection on invalid UNSUBSCRIBE filter {topic!r}")
+        else:
+            print(f"UNEXPECTED: filter {topic!r} got {data.hex()}")
+    except (ConnectionResetError, BrokenPipeError):
+        print(f"OK: broker closed connection on invalid UNSUBSCRIBE filter {topic!r} (reset)")
+    except socket.timeout:
+        print(f"TIMEOUT: broker did not close on invalid UNSUBSCRIBE filter {topic!r}")
+    s.close()
+
+send_unsub('edge_t11_empty', '')
+send_unsub('edge_t11_hash', 'sport/tennis#')
+PYEOF
+    OUT="$(cat /tmp/edge_t11.out)"
+    echo "$OUT" | sed 's/^/  result: /'
+    if echo "$OUT" | grep -qi "UNEXPECTED\|TIMEOUT"; then
+        _fail "invalid UNSUBSCRIBE filter was not rejected"
+    else
+        _ok "invalid UNSUBSCRIBE filters close connection"
+    fi
+else
+    _ok "UNSUBSCRIBE invalid filter test skipped (python3 not available)"
+fi
+
 # ── summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -792,6 +792,12 @@ static void handle_unsubscribe(client_t *c, const mqtt_packet_t *pkt)
     }
 
     for (int i = 0; i < count; i++) {
+        if (!topic_filter_valid(topics[i])) {
+            LOG_WRN("client[%d] UNSUBSCRIBE invalid filter '%s' — closing",
+                    c->slot, topics[i]);
+            c->state = CLIENT_STATE_DISCONNECTING;
+            return;
+        }
         topic_unsubscribe(c, topics[i]);
     }
 

@@ -1,5 +1,17 @@
 # Release Notes
 
+## minmqtt-v0.1.5 (2026-06-19)
+
+Patch release focused on UNSUBSCRIBE topic-filter validation.
+
+### Included
+- Close client connections on UNSUBSCRIBE packets with invalid topic filters
+- Add integration coverage for empty and malformed UNSUBSCRIBE filters
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_connect_edge.sh`
+
 ## minmqtt-v0.1.4 (2026-06-19)
 
 Patch release focused on packet identifier validation for MQTT ACK flows.
