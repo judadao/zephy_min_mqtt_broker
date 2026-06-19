@@ -287,7 +287,8 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
 int packet_build_connack(uint8_t session_present, uint8_t return_code,
                           uint8_t *out, size_t out_cap)
 {
-    if (!out || out_cap < 4) {
+    if (!out || out_cap < 4 || return_code > CONNACK_NOT_AUTHORIZED ||
+        (return_code != CONNACK_ACCEPTED && session_present != 0)) {
         return -1;
     }
     out[0] = MQTT_CONNACK;
@@ -301,9 +302,17 @@ int packet_build_suback(uint16_t packet_id,
                          const uint8_t *return_codes, uint8_t count,
                          uint8_t *out, size_t out_cap)
 {
+    uint8_t i;
+
     if (packet_id == 0 || count == 0 || !return_codes || !out ||
         out_cap < (size_t)(4 + count)) {
         return -1;
+    }
+    for (i = 0; i < count; i++) {
+        if (return_codes[i] != 0x00 && return_codes[i] != 0x01 &&
+            return_codes[i] != 0x02 && return_codes[i] != 0x80) {
+            return -1;
+        }
     }
     out[0] = MQTT_SUBACK;
     out[1] = (uint8_t)(2 + count);

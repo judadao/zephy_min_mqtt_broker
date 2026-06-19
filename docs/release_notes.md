@@ -1,5 +1,19 @@
 # Release Notes
 
+## minmqtt-v0.1.8 (2026-06-19)
+
+Patch release focused on CONNACK and SUBACK builder strictness.
+
+### Included
+- Reject invalid CONNACK return codes
+- Reject session-present on refused CONNACK responses
+- Reject invalid SUBACK return codes while preserving the failure return code
+- Add unit coverage for CONNACK and SUBACK invalid builder inputs
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.7 (2026-06-19)
 
 Patch release focused on defensive packet builder validation.

@@ -163,6 +163,10 @@ static void test_build_connack(void)
     ASSERT(n < 0, "connack small buffer returns error");
     ASSERT(packet_build_connack(0, 0, NULL, sizeof(out)) < 0,
            "connack NULL output returns error");
+    ASSERT(packet_build_connack(0, 0x06, out, sizeof(out)) < 0,
+           "connack invalid return_code returns error");
+    ASSERT(packet_build_connack(1, CONNACK_BAD_CREDENTIALS, out, sizeof(out)) < 0,
+           "connack rejects session_present on refused connect");
 }
 
 static void test_build_ack_packets(void)
@@ -239,6 +243,8 @@ static void test_build_suback(void)
     printf("\n--- build_suback ---\n");
     uint8_t out[32];
     uint8_t rc[3] = {0x00, 0x01, 0x02};
+    uint8_t fail_rc[1] = {0x80};
+    uint8_t bad_rc[1] = {0x03};
 
     int n = packet_build_suback(0x0005, rc, 3, out, sizeof(out));
     ASSERT(n == 7, "suback 3 topics length = 7");
@@ -249,6 +255,8 @@ static void test_build_suback(void)
     ASSERT_EQ(out[4], 0x00,        "suback rc[0] = 0 (QoS 0)");
     ASSERT_EQ(out[5], 0x01,        "suback rc[1] = 1 (QoS 1)");
     ASSERT_EQ(out[6], 0x02,        "suback rc[2] = 2 (QoS 2)");
+    ASSERT(packet_build_suback(0x0005, fail_rc, 1, out, sizeof(out)) == 5,
+           "suback accepts failure return code");
     ASSERT(packet_build_suback(0x0000, rc, 3, out, sizeof(out)) < 0,
            "suback packet_id=0 returns error");
     ASSERT(packet_build_suback(0x0005, rc, 0, out, sizeof(out)) < 0,
@@ -257,6 +265,8 @@ static void test_build_suback(void)
            "suback NULL return_codes returns error");
     ASSERT(packet_build_suback(0x0005, rc, 3, NULL, sizeof(out)) < 0,
            "suback NULL output returns error");
+    ASSERT(packet_build_suback(0x0005, bad_rc, 1, out, sizeof(out)) < 0,
+           "suback invalid return code returns error");
 }
 
 static void test_build_parse_publish_roundtrip(void)
