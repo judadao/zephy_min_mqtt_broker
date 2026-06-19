@@ -277,6 +277,32 @@ static int cmd_pub(const char *host, uint16_t port,
         if (recv_pkt(fd, &pkt) < 0 || (pkt.type_flags & 0xF0) != MQTT_PUBACK) {
             fprintf(stderr, "error: PUBACK not received\n"); close(fd); return 1;
         }
+    } else if (qos == 2) {
+        mqtt_packet_t pkt;
+        uint16_t ack_id;
+
+        if (recv_pkt(fd, &pkt) < 0 ||
+            (pkt.type_flags & 0xF0) != MQTT_PUBREC ||
+            pkt.buf_len < 2) {
+            fprintf(stderr, "error: PUBREC not received\n"); close(fd); return 1;
+        }
+        ack_id = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+        if (ack_id != pub.packet_id) {
+            fprintf(stderr, "error: PUBREC packet_id mismatch\n"); close(fd); return 1;
+        }
+        len = packet_build_pubrel(pub.packet_id, buf, sizeof(buf));
+        if (len < 0 || send_all(fd, buf, (size_t)len) < 0) {
+            fprintf(stderr, "error: PUBREL send failed\n"); close(fd); return 1;
+        }
+        if (recv_pkt(fd, &pkt) < 0 ||
+            (pkt.type_flags & 0xF0) != MQTT_PUBCOMP ||
+            pkt.buf_len < 2) {
+            fprintf(stderr, "error: PUBCOMP not received\n"); close(fd); return 1;
+        }
+        ack_id = (uint16_t)((pkt.buf[0] << 8) | pkt.buf[1]);
+        if (ack_id != pub.packet_id) {
+            fprintf(stderr, "error: PUBCOMP packet_id mismatch\n"); close(fd); return 1;
+        }
     }
 
     len = build_disconnect(buf, sizeof(buf));

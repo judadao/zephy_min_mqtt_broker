@@ -148,6 +148,36 @@ static int id_cmp(const uint8_t *a, const uint8_t *b)
     return memcmp(a, b, P2P_NODE_ID_LEN);
 }
 
+static int cstr_len_bounded(const char *s, size_t max, size_t *out_len)
+{
+    size_t len = 0;
+
+    if (!s || !out_len) {
+        return 0;
+    }
+    while (len < max && s[len] != '\0') {
+        len++;
+    }
+    if (len >= max) {
+        return 0;
+    }
+    *out_len = len;
+    return 1;
+}
+
+static int copy_cstr_bounded(char *dst, size_t dst_cap, const char *src)
+{
+    size_t len;
+
+    if (!dst || dst_cap == 0 ||
+        !cstr_len_bounded(src, dst_cap, &len)) {
+        return 0;
+    }
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+    return 1;
+}
+
 void p2p_static_seed_clear(void)
 {
     plat_mutex_lock(&seed_lock);
@@ -342,19 +372,25 @@ static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
 static void flood_publish_to_connected_peers(const uint8_t *frame, uint16_t frame_len,
                                              const uint8_t *exclude_node_id)
 {
+    uint8_t targets[P2P_PEER_MAX][P2P_NODE_ID_LEN];
+    int count = 0;
+
     plat_mutex_lock(&peer_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
+    for (int i = 0; i < P2P_PEER_MAX && count < P2P_PEER_MAX; i++) {
         if (!conns[i].connected) {
             continue;
         }
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
             continue;
         }
-        plat_mutex_lock(&send_locks[i]);
-        (void)send_frame(conns[i].fd, P2P_PUBLISH, frame, frame_len);
-        plat_mutex_unlock(&send_locks[i]);
+        memcpy(targets[count], conns[i].node_id, P2P_NODE_ID_LEN);
+        count++;
     }
     plat_mutex_unlock(&peer_lock);
+
+    for (int i = 0; i < count; i++) {
+        (void)send_prebuilt_publish_to_node_unlocked(targets[i], frame, frame_len);
+    }
 }
 
 static int send_sub_to_node_unlocked(const uint8_t node_id[P2P_NODE_ID_LEN],
@@ -407,10 +443,13 @@ static int build_publish_frame(const p2p_publish_msg_t *msg,
                                uint16_t *out_len)
 {
     p2p_publish_wire_hdr_t hdr;
-    size_t topic_len = strlen(msg->topic);
+    size_t topic_len;
     size_t needed;
 
-    if (topic_len >= MQTT_TOPIC_MAX || msg->payload_len > MQTT_PAYLOAD_MAX) {
+    if (!msg || !out || !out_len ||
+        !cstr_len_bounded(msg->topic, MQTT_TOPIC_MAX, &topic_len) ||
+        topic_len == 0 ||
+        msg->payload_len > MQTT_PAYLOAD_MAX) {
         return -1;
     }
 
@@ -476,18 +515,28 @@ static int send_hello(int fd)
 static void send_current_hello_to_peers(void)
 {
     p2p_announce_t ann;
+    uint8_t targets[P2P_PEER_MAX][P2P_NODE_ID_LEN];
+    int count = 0;
 
     p2p_election_build_announce(&ann);
     plat_mutex_lock(&peer_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
+    for (int i = 0; i < P2P_PEER_MAX && count < P2P_PEER_MAX; i++) {
         if (!conns[i].connected) {
             continue;
         }
-        plat_mutex_lock(&send_locks[i]);
-        (void)send_frame(conns[i].fd, P2P_HELLO, &ann, sizeof(ann));
-        plat_mutex_unlock(&send_locks[i]);
+        memcpy(targets[count], conns[i].node_id, P2P_NODE_ID_LEN);
+        count++;
     }
     plat_mutex_unlock(&peer_lock);
+
+    for (int i = 0; i < count; i++) {
+        int slot = find_and_lock_send_slot(targets[i]);
+        if (slot < 0) {
+            continue;
+        }
+        (void)send_frame(send_slots[slot].fd, P2P_HELLO, &ann, sizeof(ann));
+        plat_mutex_unlock(&send_locks[slot]);
+    }
 }
 
 /*
@@ -612,6 +661,20 @@ static int addr_conn_exists(uint32_t addr, uint16_t p2p_port)
     }
     plat_mutex_unlock(&peer_lock);
     return exists;
+}
+
+static int connected_peer_count(void)
+{
+    int count = 0;
+
+    plat_mutex_lock(&peer_lock);
+    for (int i = 0; i < P2P_PEER_MAX; i++) {
+        if (conns[i].connected) {
+            count++;
+        }
+    }
+    plat_mutex_unlock(&peer_lock);
+    return count;
 }
 
 static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
@@ -767,7 +830,13 @@ static void spawn_peer(p2p_conn_t *c)
     k_thread_create(&c->thread, peer_stacks[slot], K_THREAD_STACK_SIZEOF(peer_stacks[slot]),
                     peer_loop, c, NULL, NULL, 6, 0, K_NO_WAIT);
 #else
-    pthread_create(&c->thread, NULL, peer_main, c);
+    int rc = pthread_create(&c->thread, NULL, peer_main, c);
+    if (rc != 0) {
+        LOG_ERR("P2P peer thread create failed: %d", rc);
+        close_conn(c);
+        return;
+    }
+    pthread_detach(c->thread);
 #endif
 }
 
@@ -825,6 +894,46 @@ static int connect_to_peer(const p2p_peer_score_t *peer)
 }
 #endif
 
+#ifndef __ZEPHYR__
+static void load_env_static_seeds_once(void)
+{
+    static int loaded;
+    const char *seeds;
+    char tmp[2048];
+    char *saveptr = NULL;
+
+    if (loaded) {
+        return;
+    }
+    loaded = 1;
+
+    seeds = getenv("MQTT_P2P_PEERS");
+    if (!seeds || !seeds[0]) {
+        return;
+    }
+
+    strncpy(tmp, seeds, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+    for (char *tok = strtok_r(tmp, ",", &saveptr);
+         tok;
+         tok = strtok_r(NULL, ",", &saveptr)) {
+        char *colon = strrchr(tok, ':');
+        uint32_t addr;
+        int port;
+
+        if (!colon) {
+            continue;
+        }
+        *colon = '\0';
+        addr = inet_addr(tok);
+        port = atoi(colon + 1);
+        if (addr != INADDR_NONE && port > 0 && port <= 65535) {
+            (void)p2p_static_seed_add(addr, (uint16_t)port);
+        }
+    }
+}
+#endif
+
 static void accept_loop(void *p1, void *p2, void *p3)
 {
     ARG_UNUSED(p1);
@@ -861,6 +970,10 @@ static void connect_loop(void *p1, void *p2, void *p3)
         p2p_peer_score_t peers[P2P_PEER_MAX + 1];
         int n = p2p_election_snapshot(peers, P2P_PEER_MAX + 1);
 
+#ifndef __ZEPHYR__
+        load_env_static_seeds_once();
+#endif
+
         p2p_election_self_id(self_id);
         budget = p2p_election_peer_budget(n);
 #if defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
@@ -868,11 +981,7 @@ static void connect_loop(void *p1, void *p2, void *p3)
 #endif
 
         if (budget > 0) {
-            for (int i = 0; i < P2P_PEER_MAX; i++) {
-                if (conns[i].connected) {
-                    connected++;
-                }
-            }
+            connected = connected_peer_count();
         }
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
         if (connected < budget) {
@@ -935,36 +1044,6 @@ static void connect_loop(void *p1, void *p2, void *p3)
                 }
             }
         }
-
-#ifndef __ZEPHYR__
-        {
-            const char *seeds = getenv("MQTT_P2P_PEERS");
-            if (seeds && seeds[0]) {
-                char tmp[2048];
-                strncpy(tmp, seeds, sizeof(tmp) - 1);
-                tmp[sizeof(tmp) - 1] = '\0';
-                char *saveptr = NULL;
-                for (char *tok = strtok_r(tmp, ",", &saveptr);
-                     tok;
-                     tok = strtok_r(NULL, ",", &saveptr)) {
-                    char *colon = strrchr(tok, ':');
-                    if (!colon) {
-                        continue;
-                    }
-                    *colon = '\0';
-                    uint32_t addr = inet_addr(tok);
-                    int port = atoi(colon + 1);
-                    if (addr != INADDR_NONE && port > 0 && port <= 65535) {
-                        (void)p2p_static_seed_add(addr, (uint16_t)port);
-                        connected += connect_to_addr(addr, (uint16_t)port);
-                    }
-                    if (budget > 0 && connected >= budget) {
-                        break;
-                    }
-                }
-            }
-        }
-#endif
 
         send_current_hello_to_peers();
 #ifdef __ZEPHYR__
@@ -1035,8 +1114,20 @@ void p2p_peer_start(void)
     k_thread_create(&connect_thread, connect_stack, K_THREAD_STACK_SIZEOF(connect_stack),
                     connect_loop, NULL, NULL, NULL, 6, 0, K_NO_WAIT);
 #else
-    pthread_create(&accept_thread, NULL, accept_main, NULL);
-    pthread_create(&connect_thread, NULL, connect_main, NULL);
+    {
+        int rc = pthread_create(&accept_thread, NULL, accept_main, NULL);
+        if (rc == 0) {
+            pthread_detach(accept_thread);
+        } else {
+            LOG_ERR("P2P accept thread create failed: %d", rc);
+        }
+        rc = pthread_create(&connect_thread, NULL, connect_main, NULL);
+        if (rc == 0) {
+            pthread_detach(connect_thread);
+        } else {
+            LOG_ERR("P2P connect thread create failed: %d", rc);
+        }
+    }
 #endif
     LOG_INF("P2P peer TCP enabled on port %d", P2P_PORT);
 }
@@ -1069,8 +1160,11 @@ static void send_sub_to_peers_by_role(const p2p_sub_msg_t *msg, uint8_t type,
                                       const uint8_t *exclude_node_id,
                                       int routers_only)
 {
+    uint8_t targets[P2P_PEER_MAX][P2P_NODE_ID_LEN];
+    int count = 0;
+
     plat_mutex_lock(&peer_lock);
-    for (int i = 0; i < P2P_PEER_MAX; i++) {
+    for (int i = 0; i < P2P_PEER_MAX && count < P2P_PEER_MAX; i++) {
         if (!conns[i].connected) {
             continue;
         }
@@ -1081,11 +1175,14 @@ static void send_sub_to_peers_by_role(const p2p_sub_msg_t *msg, uint8_t type,
         if (exclude_node_id && id_equal(conns[i].node_id, exclude_node_id)) {
             continue;
         }
-        plat_mutex_lock(&send_locks[i]);
-        (void)send_frame(conns[i].fd, type, msg, sizeof(*msg));
-        plat_mutex_unlock(&send_locks[i]);
+        memcpy(targets[count], conns[i].node_id, P2P_NODE_ID_LEN);
+        count++;
     }
     plat_mutex_unlock(&peer_lock);
+
+    for (int i = 0; i < count; i++) {
+        (void)send_sub_to_node_unlocked(targets[i], msg, type);
+    }
 }
 
 void p2p_send_sub_to_routers(const p2p_sub_msg_t *msg, uint8_t type,
@@ -1110,9 +1207,11 @@ void p2p_local_subscribe(const char *filter, uint8_t qos)
     uint8_t owner_id[P2P_NODE_ID_LEN];
     uint8_t self_id[P2P_NODE_ID_LEN];
 
+    if (qos > 2 || !copy_cstr_bounded(msg.filter, sizeof(msg.filter), filter)) {
+        return;
+    }
     p2p_election_self_id(msg.owner_id);
     memcpy(self_id, msg.owner_id, P2P_NODE_ID_LEN);
-    strncpy(msg.filter, filter, sizeof(msg.filter) - 1);
     msg.qos = qos;
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
@@ -1128,9 +1227,11 @@ void p2p_local_unsubscribe(const char *filter)
     uint8_t owner_id[P2P_NODE_ID_LEN];
     uint8_t self_id[P2P_NODE_ID_LEN];
 
+    if (!copy_cstr_bounded(msg.filter, sizeof(msg.filter), filter)) {
+        return;
+    }
     p2p_election_self_id(msg.owner_id);
     memcpy(self_id, msg.owner_id, P2P_NODE_ID_LEN);
-    strncpy(msg.filter, filter, sizeof(msg.filter) - 1);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
         if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_UNSUB_NOTIFY)) {
@@ -1158,10 +1259,15 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     uint8_t owner_id[P2P_NODE_ID_LEN];
     uint8_t self_id[P2P_NODE_ID_LEN];
 
+    if (!pub ||
+        pub->qos > 2 ||
+        pub->payload_len > MQTT_PAYLOAD_MAX ||
+        !copy_cstr_bounded(msg.topic, sizeof(msg.topic), pub->topic)) {
+        return;
+    }
     p2p_election_self_id(msg.origin_id);
     memcpy(self_id, msg.origin_id, P2P_NODE_ID_LEN);
     msg.seq = ++local_seq;
-    strncpy(msg.topic, pub->topic, sizeof(msg.topic) - 1);
     msg.payload_len = pub->payload_len;
     msg.qos = pub->qos;
     msg.retain = pub->retain;

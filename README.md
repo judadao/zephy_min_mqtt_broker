@@ -7,11 +7,15 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
-Latest module release: `minmqtt-v0.1.12` (2026-06-19).
+Latest module release: `minmqtt-v0.1.16` (2026-06-19).
 
 Recent hardening releases tightened MQTT packet helper behavior without changing
 the public module shape:
 
+- `minmqtt-v0.1.16`: QoS fan-out sends no longer hold the topic table lock
+- `minmqtt-v0.1.15`: dashboard HTTP sends handle partial writes and startup errors
+- `minmqtt-v0.1.14`: P2P background thread startup reports pthread failures
+- `minmqtt-v0.1.13`: static seed-only P2P mode skips UDP discovery sockets
 - `minmqtt-v0.1.12`: SUBSCRIBE and UNSUBSCRIBE parsers reject empty topic lists
 - `minmqtt-v0.1.11`: parsers reject reserved PUBLISH QoS and packet_id=0 in
   QoS PUBLISH, SUBSCRIBE, and UNSUBSCRIBE packets
@@ -246,6 +250,7 @@ broadcast is not always reliable:
 ```bash
 MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
 ./scripts/test_p2p_dynamic.sh
+./scripts/test_p2p_static_seeds_only.sh
 ```
 
 Embedders that cannot use UDP discovery can configure peers in code before

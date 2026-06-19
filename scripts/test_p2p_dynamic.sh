@@ -6,13 +6,14 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
-OUT="$ROOT/build_out/p2p_test"
+OUT="${P2P_TEST_OUT:-$ROOT/build_out/p2p_test}"
 
-NODE_A_MQTT=18831
-NODE_B_MQTT=18832
-NODE_A_P2P=48841
-NODE_B_P2P=48842
-DISCOVERY_PORT=48850
+NODE_A_MQTT="${NODE_A_MQTT:-18831}"
+NODE_B_MQTT="${NODE_B_MQTT:-18832}"
+NODE_A_P2P="${NODE_A_P2P:-48841}"
+NODE_B_P2P="${NODE_B_P2P:-48842}"
+DISCOVERY_PORT="${DISCOVERY_PORT:-48850}"
+STATIC_SEEDS_ONLY="${STATIC_SEEDS_ONLY:-0}"
 
 PASS=0
 FAIL=0
@@ -49,9 +50,14 @@ _require_free_ports() {
 
 _build_node() {
     local out="$1" mqtt_port="$2" p2p_port="$3"
+    local static_flag=""
+    if [ "$STATIC_SEEDS_ONLY" = "1" ]; then
+        static_flag="-DCONFIG_MQTT_P2P_STATIC_SEEDS_ONLY"
+    fi
     gcc -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L \
         -I"$ROOT/include" -I"$ROOT" \
         -DCONFIG_MQTT_P2P_DYNAMIC \
+        $static_flag \
         -DMQTT_BROKER_PORT="$mqtt_port" \
         -DP2P_PORT="$p2p_port" \
         -DP2P_DISCOVERY_PORT="$DISCOVERY_PORT" \
@@ -101,7 +107,11 @@ _run_broker() {
     echo $!
 }
 
-echo "[setup] building P2P test binaries..."
+if [ "$STATIC_SEEDS_ONLY" = "1" ]; then
+    echo "[setup] building P2P static-seed-only test binaries..."
+else
+    echo "[setup] building P2P test binaries..."
+fi
 mkdir -p "$OUT"
 _require_free_ports
 _build_node "$OUT/broker_a" "$NODE_A_MQTT" "$NODE_A_P2P" || exit 1
@@ -128,6 +138,17 @@ else
     _fail "P2P peer connection established"
     cat "$OUT/a.log" "$OUT/b.log" >&2
     exit 1
+fi
+
+if [ "$STATIC_SEEDS_ONLY" = "1" ]; then
+    if grep -q "P2P static seed-only broker mode enabled" "$OUT/a.log" "$OUT/b.log" &&
+       ! grep -q "P2P dynamic broker discovery enabled" "$OUT/a.log" "$OUT/b.log"; then
+        _ok "static seed-only mode skips UDP discovery"
+    else
+        _fail "static seed-only mode skips UDP discovery"
+        cat "$OUT/a.log" "$OUT/b.log" >&2
+        exit 1
+    fi
 fi
 
 echo "[test] B subscribes, A publishes..."

@@ -30,7 +30,9 @@ int main(void)
     }
 
 #if defined(CONFIG_MQTT_HTTP_DASHBOARD) && !defined(__ZEPHYR__)
-    http_server_start(8080);
+    if (http_server_start(8080) != 0) {
+        LOG_ERR("HTTP dashboard start failed");
+    }
 #endif
 
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)

@@ -115,6 +115,21 @@ static const char DASHBOARD[] =
 
 /* ── HTTP helpers ───────────────────────────────────────────────────────────── */
 
+static int http_send_all(int fd, const void *buf, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)buf;
+
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, 0);
+        if (n <= 0) {
+            return -1;
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
 static void http_send(int fd, int code, const char *ctype,
                       const char *body, size_t blen)
 {
@@ -128,8 +143,15 @@ static void http_send(int fd, int code, const char *ctype,
         "Access-Control-Allow-Origin: *\r\n"
         "Connection: close\r\n"
         "\r\n", code, reason, ctype, blen);
-    send(fd, hdr, (size_t)hlen, 0);
-    if (blen) send(fd, body, blen, 0);
+    if (hlen < 0 || (size_t)hlen >= sizeof(hdr)) {
+        return;
+    }
+    if (http_send_all(fd, hdr, (size_t)hlen) < 0) {
+        return;
+    }
+    if (blen) {
+        (void)http_send_all(fd, body, blen);
+    }
 }
 
 /* locate the value portion of "key": <value> in a JSON string */
@@ -345,10 +367,20 @@ int http_server_start(uint16_t port)
     if (bind(srv_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(srv_fd); return -1;
     }
-    listen(srv_fd, 4);
+    if (listen(srv_fd, 4) < 0) {
+        close(srv_fd);
+        srv_fd = -1;
+        return -1;
+    }
 
     running = 1;
-    pthread_create(&http_tid, NULL, http_thread, NULL);
+    int rc = pthread_create(&http_tid, NULL, http_thread, NULL);
+    if (rc != 0) {
+        running = 0;
+        close(srv_fd);
+        srv_fd = -1;
+        return -1;
+    }
     printf("[INF] HTTP dashboard on http://0.0.0.0:%u\n", port);
     return 0;
 }

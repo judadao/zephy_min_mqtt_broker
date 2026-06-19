@@ -96,8 +96,11 @@ fi
 # but it can be flaky on heavily loaded machines
 if [ $RUN_ALL -eq 1 ]; then
     run_suite "P2P dynamic routing"      "$SCRIPT_DIR/test_p2p_dynamic.sh"
+    run_suite "P2P static seed-only routing" \
+                                         "$SCRIPT_DIR/test_p2p_static_seeds_only.sh"
 else
     _skip "P2P dynamic routing" "pass --all to include"
+    _skip "P2P static seed-only routing" "pass --all to include"
 fi
 
 # Dashboard test requires DASHBOARD=1 build and port 8080

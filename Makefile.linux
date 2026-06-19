@@ -1,6 +1,7 @@
 CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c11 -g -D_POSIX_C_SOURCE=200809L -Iinclude -I.
 OUTDIR  = build_out
+HEADERS = $(wildcard include/*.h platform/*.h platform/posix/*.h)
 
 # Version stamp: Zephyr-format VERSION file or override on command line.
 VERSION ?= $(shell awk '/^VERSION_MAJOR/ {maj=$$3} /^VERSION_MINOR/ {min=$$3} /^PATCHLEVEL/ {patch=$$3} END { if (maj != "") print maj "." min "." patch; else print "dev" }' VERSION 2>/dev/null)
@@ -140,12 +141,12 @@ test-all: all test-helpers unit-tests
 $(OUTDIR):
 	mkdir -p $(OUTDIR)
 
-$(BROKER_BIN): $(SRCS)
+$(BROKER_BIN): $(SRCS) $(HEADERS)
 	$(CC) $(CFLAGS) $(SRCS) -o $(BROKER_BIN) $(LDFLAGS)
 	ln -sf mqtt_broker_$(STAMP) $(OUTDIR)/mqtt_broker
 	@echo "  broker  → $(BROKER_BIN)"
 
-$(CLI_BIN): $(CLI_SRCS)
+$(CLI_BIN): $(CLI_SRCS) $(HEADERS)
 	$(CC) $(CFLAGS) $(CLI_SRCS) -o $(CLI_BIN) $(LDFLAGS)
 	ln -sf mqtt_cli_$(STAMP) $(OUTDIR)/mqtt_cli
 	@echo "  cli     → $(CLI_BIN)"

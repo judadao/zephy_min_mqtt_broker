@@ -20,7 +20,7 @@ typedef pthread_mutex_t  plat_mutex_t;
 /* --- Thread --- */
 typedef pthread_t  plat_thread_t;
 struct client;
-void plat_thread_spawn(struct client *c);
+int plat_thread_spawn(struct client *c);
 
 /* --- Time --- */
 int64_t plat_uptime_ms(void);

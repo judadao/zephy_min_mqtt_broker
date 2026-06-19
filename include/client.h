@@ -4,7 +4,6 @@
 #include "platform/platform.h"
 #include "packet.h"
 
-#define CLIENT_RECV_BUF_SIZE     (MQTT_MAX_PACKET_SIZE + 8)
 #define CLIENT_STACK_SIZE        2048
 #define CLIENT_INFLIGHT_MAX      4
 #define CLIENT_INFLIGHT_RETRY_MS 5000
@@ -47,9 +46,6 @@ typedef struct client {
     uint16_t         next_packet_id; /* incremented per QoS-1/2 outbound */
     inflight_t       inflight[CLIENT_INFLIGHT_MAX];
     qos2_in_t        qos2_in[CLIENT_QOS2_IN_MAX]; /* inbound QoS-2 dedup table */
-
-    uint8_t          recv_buf[CLIENT_RECV_BUF_SIZE];
-    size_t           recv_len;
 
     plat_thread_t    thread;
 } client_t;
