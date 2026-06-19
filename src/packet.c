@@ -287,7 +287,7 @@ int packet_parse_unsubscribe(const mqtt_packet_t *pkt,
 int packet_build_connack(uint8_t session_present, uint8_t return_code,
                           uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) {
+    if (!out || out_cap < 4) {
         return -1;
     }
     out[0] = MQTT_CONNACK;
@@ -301,7 +301,8 @@ int packet_build_suback(uint16_t packet_id,
                          const uint8_t *return_codes, uint8_t count,
                          uint8_t *out, size_t out_cap)
 {
-    if (out_cap < (size_t)(4 + count)) {
+    if (packet_id == 0 || count == 0 || !return_codes || !out ||
+        out_cap < (size_t)(4 + count)) {
         return -1;
     }
     out[0] = MQTT_SUBACK;
@@ -313,7 +314,7 @@ int packet_build_suback(uint16_t packet_id,
 
 int packet_build_unsuback(uint16_t packet_id, uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) {
+    if (packet_id == 0 || !out || out_cap < 4) {
         return -1;
     }
     out[0] = MQTT_UNSUBACK;
@@ -365,7 +366,7 @@ int packet_build_publish(const mqtt_publish_t *pub, uint8_t *out, size_t out_cap
 
 int packet_build_puback(uint16_t packet_id, uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) {
+    if (packet_id == 0 || !out || out_cap < 4) {
         return -1;
     }
     out[0] = MQTT_PUBACK;
@@ -376,7 +377,7 @@ int packet_build_puback(uint16_t packet_id, uint8_t *out, size_t out_cap)
 
 int packet_build_pubrec(uint16_t packet_id, uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) return -1;
+    if (packet_id == 0 || !out || out_cap < 4) return -1;
     out[0] = MQTT_PUBREC;
     out[1] = 2;
     write_u16(out + 2, packet_id);
@@ -385,7 +386,7 @@ int packet_build_pubrec(uint16_t packet_id, uint8_t *out, size_t out_cap)
 
 int packet_build_pubrel(uint16_t packet_id, uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) return -1;
+    if (packet_id == 0 || !out || out_cap < 4) return -1;
     out[0] = MQTT_PUBREL | 0x02; /* fixed header 0x62 per spec */
     out[1] = 2;
     write_u16(out + 2, packet_id);
@@ -394,7 +395,7 @@ int packet_build_pubrel(uint16_t packet_id, uint8_t *out, size_t out_cap)
 
 int packet_build_pubcomp(uint16_t packet_id, uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 4) return -1;
+    if (packet_id == 0 || !out || out_cap < 4) return -1;
     out[0] = MQTT_PUBCOMP;
     out[1] = 2;
     write_u16(out + 2, packet_id);
@@ -403,7 +404,7 @@ int packet_build_pubcomp(uint16_t packet_id, uint8_t *out, size_t out_cap)
 
 int packet_build_pingresp(uint8_t *out, size_t out_cap)
 {
-    if (out_cap < 2) {
+    if (!out || out_cap < 2) {
         return -1;
     }
     out[0] = MQTT_PINGRESP;

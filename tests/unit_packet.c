@@ -161,6 +161,8 @@ static void test_build_connack(void)
     /* buffer too small → error */
     n = packet_build_connack(0, 0, out, 3);
     ASSERT(n < 0, "connack small buffer returns error");
+    ASSERT(packet_build_connack(0, 0, NULL, sizeof(out)) < 0,
+           "connack NULL output returns error");
 }
 
 static void test_build_ack_packets(void)
@@ -202,6 +204,18 @@ static void test_build_ack_packets(void)
     /* small buffer → error */
     n = packet_build_puback(1, out, 3);
     ASSERT(n < 0, "puback small buffer returns error");
+    ASSERT(packet_build_puback(0, out, sizeof(out)) < 0,
+           "puback packet_id=0 returns error");
+    ASSERT(packet_build_pubrec(0, out, sizeof(out)) < 0,
+           "pubrec packet_id=0 returns error");
+    ASSERT(packet_build_pubrel(0, out, sizeof(out)) < 0,
+           "pubrel packet_id=0 returns error");
+    ASSERT(packet_build_pubcomp(0, out, sizeof(out)) < 0,
+           "pubcomp packet_id=0 returns error");
+    ASSERT(packet_build_unsuback(0, out, sizeof(out)) < 0,
+           "unsuback packet_id=0 returns error");
+    ASSERT(packet_build_puback(1, NULL, sizeof(out)) < 0,
+           "puback NULL output returns error");
 }
 
 static void test_build_pingresp(void)
@@ -216,6 +230,8 @@ static void test_build_pingresp(void)
 
     n = packet_build_pingresp(out, 1);
     ASSERT(n < 0, "pingresp small buffer returns error");
+    ASSERT(packet_build_pingresp(NULL, sizeof(out)) < 0,
+           "pingresp NULL output returns error");
 }
 
 static void test_build_suback(void)
@@ -233,6 +249,14 @@ static void test_build_suback(void)
     ASSERT_EQ(out[4], 0x00,        "suback rc[0] = 0 (QoS 0)");
     ASSERT_EQ(out[5], 0x01,        "suback rc[1] = 1 (QoS 1)");
     ASSERT_EQ(out[6], 0x02,        "suback rc[2] = 2 (QoS 2)");
+    ASSERT(packet_build_suback(0x0000, rc, 3, out, sizeof(out)) < 0,
+           "suback packet_id=0 returns error");
+    ASSERT(packet_build_suback(0x0005, rc, 0, out, sizeof(out)) < 0,
+           "suback count=0 returns error");
+    ASSERT(packet_build_suback(0x0005, NULL, 3, out, sizeof(out)) < 0,
+           "suback NULL return_codes returns error");
+    ASSERT(packet_build_suback(0x0005, rc, 3, NULL, sizeof(out)) < 0,
+           "suback NULL output returns error");
 }
 
 static void test_build_parse_publish_roundtrip(void)

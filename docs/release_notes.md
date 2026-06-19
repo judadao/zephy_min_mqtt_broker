@@ -1,5 +1,19 @@
 # Release Notes
 
+## minmqtt-v0.1.7 (2026-06-19)
+
+Patch release focused on defensive packet builder validation.
+
+### Included
+- Reject packet_id=0 in SUBACK, UNSUBACK, PUBACK, PUBREC, PUBREL, and PUBCOMP builders
+- Reject NULL output pointers in fixed-size packet builders
+- Reject SUBACK with zero return codes or NULL return-code array
+- Add unit coverage for fixed-size builder invalid inputs
+
+### Validation
+- `make -f Makefile.linux unit-tests`
+- `make -f Makefile.linux all test-helpers && ./scripts/test_broker.sh`
+
 ## minmqtt-v0.1.6 (2026-06-19)
 
 Patch release focused on defensive PUBLISH frame construction.
