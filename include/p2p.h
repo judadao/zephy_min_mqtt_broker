@@ -30,6 +30,9 @@
 #ifndef P2P_PEER_TIMEOUT_MS
 #define P2P_PEER_TIMEOUT_MS   15000
 #endif
+#ifndef P2P_STATIC_SEED_MAX
+#define P2P_STATIC_SEED_MAX   P2P_PEER_MAX
+#endif
 #ifndef P2P_SEEN_MAX
 #ifdef __ZEPHYR__
 #define P2P_SEEN_MAX          32
@@ -122,6 +125,16 @@ void p2p_peer_start(void);
  * call returns.
  */
 int p2p_peer_snapshot(p2p_peer_snapshot_t *out, int max);
+
+/*
+ * Static seed configuration for networks where UDP discovery is unavailable.
+ * Call these before p2p_start()/broker_run(). addr is an IPv4 address in
+ * network byte order, matching struct sockaddr_in.sin_addr.s_addr.
+ * p2p_static_seed_add() returns 0 on success or -1 when inputs are invalid or
+ * the fixed seed table is full.
+ */
+void p2p_static_seed_clear(void);
+int p2p_static_seed_add(uint32_t addr, uint16_t p2p_port);
 
 /*
  * Local MQTT event hooks. topic.c calls these when local subscriptions or

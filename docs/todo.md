@@ -20,7 +20,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 ## P2P Extension
 
-- [ ] Static P2P seed API/config (for environments where UDP broadcast is unavailable)
+- [x] Static P2P seed API/config (for environments where UDP broadcast is unavailable)
 - [x] P2P peer status snapshot API (so embedders can query current peer connectivity)
 - [x] P2P route/remote subscription stats API
 

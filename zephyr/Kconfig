@@ -80,6 +80,15 @@ config MQTT_P2P_DYNAMIC
 	  TCP inter-node routing on port 4884.  Leave disabled for a
 	  normal standalone MQTT broker.
 
+config MQTT_P2P_STATIC_SEEDS_ONLY
+	bool "Use only configured static P2P seeds"
+	depends on MQTT_P2P_DYNAMIC
+	default n
+	help
+	  Disable discovery-driven outbound peer selection.  Use this for
+	  networks where UDP broadcast is unavailable; the embedder should
+	  call p2p_static_seed_add() before broker_run().
+
 endmenu
 
 menu "Auth"

@@ -212,6 +212,7 @@ make -f Makefile.linux all
 make -f Makefile.linux DASHBOARD=1
 make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret
 make -f Makefile.linux all P2P=1
+make -f Makefile.linux all P2P=1 STATIC_SEEDS_ONLY=1
 ```
 
 ### Dynamic broker local test
@@ -222,6 +223,14 @@ broadcast is not always reliable:
 ```bash
 MQTT_P2P_PEERS=127.0.0.1:48842 ./build_out/mqtt_broker
 ./scripts/test_p2p_dynamic.sh
+```
+
+Embedders that cannot use UDP discovery can configure peers in code before
+`broker_run()`:
+
+```c
+p2p_static_seed_clear();
+p2p_static_seed_add(peer_addr_s_addr, 4884);
 ```
 
 Compile-time overrides are available for local tests:
@@ -418,6 +427,7 @@ west espressif monitor
 | `CONFIG_MQTT_WIFI_DHCP` | y | Use DHCP |
 | `CONFIG_MQTT_HTTP_DASHBOARD` | n | HTTP dashboard (Linux only) |
 | `CONFIG_MQTT_P2P_DYNAMIC` | n | Dynamic router election and inter-node routing |
+| `CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY` | n | Use configured static P2P seeds instead of discovery-driven outbound peer selection |
 
 Copy `prj.conf.template` to `prj.conf` and fill in credentials. `prj.conf` is
 gitignored.

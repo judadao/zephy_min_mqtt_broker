@@ -28,6 +28,9 @@ ifdef P2P
 CFLAGS += -DCONFIG_MQTT_P2P_DYNAMIC
 SRCS_P2P = src/p2p_discover.c src/p2p_election.c src/p2p_peer.c src/p2p_router.c src/p2p_shard.c
 endif
+ifdef STATIC_SEEDS_ONLY
+CFLAGS += -DCONFIG_MQTT_P2P_STATIC_SEEDS_ONLY
+endif
 
 ifdef MQTT_PORT
 CFLAGS += -DMQTT_BROKER_PORT=$(MQTT_PORT)
@@ -74,6 +77,7 @@ help:
 	@echo "  make -f Makefile.linux               # broker + mqtt_cli"
 	@echo "  make -f Makefile.linux DASHBOARD=1   # + HTTP dashboard (port 8080)"
 	@echo "  make -f Makefile.linux P2P=1         # + dynamic P2P routing"
+	@echo "  make -f Makefile.linux P2P=1 STATIC_SEEDS_ONLY=1"
 	@echo "  make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret"
 	@echo ""
 	@echo "Test targets:"

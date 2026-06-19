@@ -38,6 +38,12 @@ typedef struct {
 } seen_msg_t;
 
 typedef struct {
+    uint32_t addr;
+    uint16_t p2p_port;
+    uint8_t in_use;
+} p2p_static_seed_t;
+
+typedef struct {
     uint8_t  origin_id[P2P_NODE_ID_LEN];
     uint16_t seq;
     uint16_t topic_len;
@@ -58,6 +64,8 @@ PLAT_MUTEX_DEFINE(seen_lock);
 static p2p_send_slot_t send_slots[P2P_PEER_MAX];
 PLAT_MUTEX_DEFINE(send_meta_lock);
 static plat_mutex_t send_locks[P2P_PEER_MAX];
+static p2p_static_seed_t static_seeds[P2P_STATIC_SEED_MAX];
+PLAT_MUTEX_DEFINE(seed_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -138,6 +146,41 @@ static void send_slot_clear(int slot)
 static int id_cmp(const uint8_t *a, const uint8_t *b)
 {
     return memcmp(a, b, P2P_NODE_ID_LEN);
+}
+
+void p2p_static_seed_clear(void)
+{
+    plat_mutex_lock(&seed_lock);
+    memset(static_seeds, 0, sizeof(static_seeds));
+    plat_mutex_unlock(&seed_lock);
+}
+
+int p2p_static_seed_add(uint32_t addr, uint16_t p2p_port)
+{
+    if (addr == INADDR_NONE || addr == 0 || p2p_port == 0) {
+        return -1;
+    }
+
+    plat_mutex_lock(&seed_lock);
+    for (int i = 0; i < P2P_STATIC_SEED_MAX; i++) {
+        if (static_seeds[i].in_use &&
+            static_seeds[i].addr == addr &&
+            static_seeds[i].p2p_port == p2p_port) {
+            plat_mutex_unlock(&seed_lock);
+            return 0;
+        }
+    }
+    for (int i = 0; i < P2P_STATIC_SEED_MAX; i++) {
+        if (!static_seeds[i].in_use) {
+            static_seeds[i].addr = addr;
+            static_seeds[i].p2p_port = p2p_port;
+            static_seeds[i].in_use = 1;
+            plat_mutex_unlock(&seed_lock);
+            return 0;
+        }
+    }
+    plat_mutex_unlock(&seed_lock);
+    return -1;
 }
 
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
@@ -874,10 +917,28 @@ static void connect_loop(void *p1, void *p2, void *p3)
 #endif
 
         {
-            const char *seeds = NULL;
+            p2p_static_seed_t seeds[P2P_STATIC_SEED_MAX];
+            int seed_count = 0;
+
+            plat_mutex_lock(&seed_lock);
+            for (int i = 0; i < P2P_STATIC_SEED_MAX; i++) {
+                if (static_seeds[i].in_use) {
+                    seeds[seed_count++] = static_seeds[i];
+                }
+            }
+            plat_mutex_unlock(&seed_lock);
+
+            for (int i = 0; i < seed_count; i++) {
+                connected += connect_to_addr(seeds[i].addr, seeds[i].p2p_port);
+                if (budget > 0 && connected >= budget) {
+                    break;
+                }
+            }
+        }
+
 #ifndef __ZEPHYR__
-            seeds = getenv("MQTT_P2P_PEERS");
-#endif
+        {
+            const char *seeds = getenv("MQTT_P2P_PEERS");
             if (seeds && seeds[0]) {
                 char tmp[2048];
                 strncpy(tmp, seeds, sizeof(tmp) - 1);
@@ -894,6 +955,7 @@ static void connect_loop(void *p1, void *p2, void *p3)
                     uint32_t addr = inet_addr(tok);
                     int port = atoi(colon + 1);
                     if (addr != INADDR_NONE && port > 0 && port <= 65535) {
+                        (void)p2p_static_seed_add(addr, (uint16_t)port);
                         connected += connect_to_addr(addr, (uint16_t)port);
                     }
                     if (budget > 0 && connected >= budget) {
@@ -902,6 +964,7 @@ static void connect_loop(void *p1, void *p2, void *p3)
                 }
             }
         }
+#endif
 
         send_current_hello_to_peers();
 #ifdef __ZEPHYR__
