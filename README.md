@@ -7,11 +7,14 @@ dynamic P2P routing between brokers.
 
 ## Current Status
 
-Latest module release: `minmqtt-v0.1.18` (2026-06-19).
+Latest module release: `mqtt-v0.1.3` (2026-06-21).
 
-Recent hardening releases tightened MQTT packet helper behavior without changing
-the public module shape:
+Recent module releases aligned the repository with the product/module split and
+kept dynamic P2P routing as the broker module's embedded networking advantage:
 
+- `mqtt-v0.1.3`: repository identity metadata for module consumers
+- `mqtt-v0.1.2`: Zephyr P2P sizing knobs for embedded builds
+- `mqtt-v0.1.1`: module dependency sync baseline
 - `minmqtt-v0.1.18`: dashboard POST bodies are read completely or rejected
 - `minmqtt-v0.1.17`: pool-full CONNACK rejection uses complete socket writes
 - `minmqtt-v0.1.16`: QoS fan-out sends no longer hold the topic table lock

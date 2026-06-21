@@ -1,5 +1,42 @@
 # Release Notes
 
+## mqtt-v0.1.3 (2026-06-21)
+
+Module metadata release for product/template dependency validation.
+
+### Included
+- Add `repo.json` identifying `mqtt_min_broker` as a reusable module repo
+- Keep product repositories able to verify that `deps.json` entries resolve to
+  module dependencies
+
+### Validation
+- `make -f Makefile.linux test`
+
+## mqtt-v0.1.2 (2026-06-21)
+
+Zephyr P2P sizing release for embedded product builds.
+
+### Included
+- Expose P2P peer, remote subscription, and shard-owner cache sizing through
+  Zephyr configuration
+- Keep dynamic P2P routing available through `CONFIG_MQTT_P2P_DYNAMIC`
+
+### Validation
+- `make -f Makefile.linux test`
+- Product `west build` through `mqtt_field_bridge_app/scripts/build_product.sh`
+
+## mqtt-v0.1.1 (2026-06-21)
+
+Product/module dependency baseline release.
+
+### Included
+- Align module tag naming with product `deps.json` pinning
+- Preserve dynamic P2P routing as an optional broker feature for product
+  embedders
+
+### Validation
+- `make -f Makefile.linux test`
+
 ## minmqtt-v0.1.18 (2026-06-19)
 
 Patch release focused on dashboard request-body stability.
