@@ -97,6 +97,34 @@ config MQTT_P2P_STATIC_SEEDS_ONLY
 	  networks where UDP broadcast is unavailable; the embedder should
 	  call p2p_static_seed_add() before broker_run().
 
+config MQTT_P2P_PEER_MAX
+	int "Maximum dynamic P2P peers"
+	depends on MQTT_P2P_DYNAMIC
+	default 5
+	range 1 32
+	help
+	  Maximum simultaneous inter-broker P2P connections. Lower this on
+	  RAM-constrained targets to reduce peer state, route tables, and
+	  per-peer thread stack allocation.
+
+config MQTT_P2P_REMOTE_SUBS_PER_NODE
+	int "Remote subscriptions tracked per P2P node"
+	depends on MQTT_P2P_DYNAMIC
+	default 8
+	range 1 64
+	help
+	  Number of remote subscriptions retained for each known P2P node.
+	  Exact and wildcard route table sizes scale with this value.
+
+config MQTT_P2P_SHARD_OWNER_CACHE_SIZE
+	int "Shard owner cache entries"
+	depends on MQTT_P2P_DYNAMIC
+	default 256
+	range 8 1024
+	help
+	  Number of cached topic-shard owner lookups. Lower values reduce
+	  static RAM at the cost of more frequent owner recomputation.
+
 endmenu
 
 menu "Auth"

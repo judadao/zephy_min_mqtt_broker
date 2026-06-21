@@ -458,6 +458,9 @@ west espressif monitor
 | `CONFIG_MQTT_HTTP_DASHBOARD` | n | HTTP dashboard (Linux only) |
 | `CONFIG_MQTT_P2P_DYNAMIC` | n | Dynamic router election and inter-node routing |
 | `CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY` | n | Use configured static P2P seeds instead of discovery-driven outbound peer selection |
+| `CONFIG_MQTT_P2P_PEER_MAX` | 5 | Max simultaneous P2P peer connections on Zephyr |
+| `CONFIG_MQTT_P2P_REMOTE_SUBS_PER_NODE` | 8 | Remote subscriptions retained per P2P node |
+| `CONFIG_MQTT_P2P_SHARD_OWNER_CACHE_SIZE` | 256 | Cached shard-owner lookups for P2P routing |
 
 Copy `prj.conf.template` to `prj.conf` and fill in credentials. `prj.conf` is
 gitignored.

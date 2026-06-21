@@ -1,6 +1,13 @@
 if(CONFIG_MQTT_MIN_BROKER)
   zephyr_library_named(mqtt_min_broker)
   zephyr_library_compile_definitions(MQTT_MAX_CLIENTS=${CONFIG_MQTT_MAX_CLIENTS})
+  if(CONFIG_MQTT_P2P_DYNAMIC)
+    zephyr_library_compile_definitions(
+      P2P_PEER_MAX=${CONFIG_MQTT_P2P_PEER_MAX}
+      P2P_REMOTE_SUBS_PER_NODE=${CONFIG_MQTT_P2P_REMOTE_SUBS_PER_NODE}
+      P2P_SHARD_OWNER_CACHE_SIZE=${CONFIG_MQTT_P2P_SHARD_OWNER_CACHE_SIZE}
+    )
+  endif()
 
   zephyr_library_sources(
     ../src/broker.c
