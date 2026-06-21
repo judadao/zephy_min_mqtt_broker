@@ -14,6 +14,10 @@
 #define INADDR_BROADCAST 0xffffffff
 #endif
 
+#ifndef INADDR_NONE
+#define INADDR_NONE 0xffffffff
+#endif
+
 /* --- Mutex --- */
 typedef struct k_mutex  plat_mutex_t;
 #define PLAT_MUTEX_DEFINE(name)   K_MUTEX_DEFINE(name)

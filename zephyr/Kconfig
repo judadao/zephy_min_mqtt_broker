@@ -9,6 +9,14 @@ config MQTT_MIN_BROKER
 
 if MQTT_MIN_BROKER
 
+config MQTT_MAX_CLIENTS
+	int "Maximum concurrent MQTT clients"
+	default 8
+	range 1 32
+	help
+	  Maximum simultaneous MQTT clients. Smaller embedded targets can lower this
+	  to reduce client state and per-client stack allocation.
+
 config MQTT_STANDALONE
 	bool "Include built-in main() and WiFi init"
 	depends on WIFI

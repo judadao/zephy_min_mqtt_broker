@@ -1,5 +1,6 @@
 if(CONFIG_MQTT_MIN_BROKER)
   zephyr_library_named(mqtt_min_broker)
+  zephyr_library_compile_definitions(MQTT_MAX_CLIENTS=${CONFIG_MQTT_MAX_CLIENTS})
 
   zephyr_library_sources(
     ../src/broker.c
@@ -24,6 +25,6 @@ if(CONFIG_MQTT_MIN_BROKER)
 
   # expose include/ and project root (for platform/platform.h)
   zephyr_library_include_directories(../include ${CMAKE_CURRENT_SOURCE_DIR}/..)
-  zephyr_include_directories(../include)
+  zephyr_include_directories(../include ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 endif()
