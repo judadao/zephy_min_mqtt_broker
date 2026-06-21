@@ -1,0 +1,7 @@
+{
+  "repo_type": "module",
+  "name": "mqtt_min_broker",
+  "module_kind": "mqtt_broker",
+  "product_dependency_allowed": true
+}
+
