@@ -4,7 +4,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 ## Zephyr Module
 
-- [ ] Confirm `CONFIG_MQTT_MIN_BROKER=y` builds as a Zephyr module without `CONFIG_MQTT_STANDALONE`
+- [x] Confirm `CONFIG_MQTT_MIN_BROKER=y` builds as a Zephyr module without `CONFIG_MQTT_STANDALONE`
 - [x] Add board-independent Zephyr build smoke test in CI or scripts
 - [x] Verify `zephyr/module.yml`, `zephyr/Kconfig`, and `zephyr/CMakeLists.txt` are complete
 
@@ -17,6 +17,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 - [x] Add release notes file for module tags (`minmqtt-vX.Y.Z`)
 - [x] Add first stable tag once module API boundaries are confirmed (`minmqtt-v0.1.0`)
+- [x] Merge validated feature branches back into the mainline branch.
 
 ## P2P Extension
 
@@ -26,7 +27,7 @@ Tracks open work items for the `mqtt_min_broker` module itself — no product-ap
 
 ## Scope Guard
 
-- [ ] Keep product-specific provisioning out of the broker core
+- [x] Keep product-specific provisioning out of the broker core
 
 ## Next Iteration Plan
 
