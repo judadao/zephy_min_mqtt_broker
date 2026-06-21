@@ -428,7 +428,7 @@ No Zephyr toolchain or SDK is needed on the host.
 
 ```bash
 ./docker-build.sh
-BOARD=esp32s3 ./docker-build.sh
+BOARD=esp32_devkitc/esp32/procpu ./docker-build.sh
 REBUILD_ENV=1 ./docker-build.sh
 ```
 

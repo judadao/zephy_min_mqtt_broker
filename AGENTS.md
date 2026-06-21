@@ -15,7 +15,7 @@ This repository contains a minimal MQTT v3.1.1 broker in C for Linux development
 - `make -f Makefile.linux AUTH_USER=admin AUTH_PASS=secret`: builds with compile-time username/password auth.
 - `make -f Makefile.linux clean`: removes Linux build output.
 - `./scripts/test_broker.sh`: builds if needed, starts the broker on port `1883`, and runs the smoke test suite.
-- `west build -b esp32 .`: builds the Zephyr standalone app when a Zephyr environment is configured.
+- `west build -b esp32_devkitc/esp32/procpu .`: builds the Zephyr standalone app when a Zephyr environment is configured.
 
 ## Coding Style & Naming Conventions
 

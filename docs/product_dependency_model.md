@@ -50,7 +50,7 @@ Recommended product-side `deps.json` shape:
     "min_version": "v3.5.0"
   },
   "build": {
-    "board": "esp32"
+    "board": "esp32_devkitc/esp32/procpu"
   }
 }
 ```
