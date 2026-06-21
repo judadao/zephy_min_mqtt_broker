@@ -110,8 +110,9 @@ This keeps the product focused on a fixed, known broker version. Broker fixes
 flow through the module repository and become available to the product only
 after a new tag is selected.
 
-## TODO
+## Completed Follow-Up
 
-- Add CI check that product `deps.json` references an existing broker tag.
-- Add release notes per broker tag so product updates can review behavior
+- Product dependency checks now validate that `deps.json` references existing
+  module tags during product sync/test flows.
+- Release notes are maintained per broker tag so product updates can review behavior
   changes before bumping.
