@@ -1,7 +1,7 @@
 {
   "repo_type": "module",
   "name": "mqtt_min_broker",
-  "description": "Reusable MQTT v3.1.1 broker with QoS/session/retain support, dashboard, and optional dynamic P2P routing for Linux and Zephyr/ESP32.",
+  "description": "Minimal MQTT v3.1.1 broker for Linux and Zephyr ESP32 with QoS, sessions, retained messages, dashboard support, and dynamic P2P routing.",
   "module_kind": "mqtt_broker",
   "product_dependency_allowed": true,
   "license": "MIT",
@@ -13,6 +13,8 @@
     "zephyr",
     "esp32",
     "p2p",
-    "embedded"
+    "embedded",
+    "mqtt-v3",
+    "embedded-c"
   ]
 }
