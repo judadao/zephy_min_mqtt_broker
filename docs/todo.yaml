@@ -46,3 +46,10 @@ items:
   status: done
   notes: Added docs/module_structure.md and passed module golden sample structure
     audit.
+- id: unit-session-null-guard
+  area: validation
+  title: Guard unit_session create/find assertions against null dereference after allocation failure.
+  status: done
+  notes: cppcheck reported that test_create_find_delete checks session_create()
+    for non-null and then immediately dereferences the pointer. Added an early
+    return after the failed allocation assertion.

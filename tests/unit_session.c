@@ -98,6 +98,9 @@ static void test_create_find_delete(void)
 
     session_t *s = session_create("client1");
     CHECK("create returns non-NULL",      s != NULL);
+    if (s == NULL) {
+        return;
+    }
     CHECK("create: client_id set",        strcmp(s->client_id, "client1") == 0);
     CHECK("create: in_use = 1",           s->in_use == 1);
     CHECK("create: offline = 0",          s->offline == 0);

@@ -1,46 +1,19 @@
-# Broker Module TODO
+# TODO
 
-Tracks open work items for the `mqtt_min_broker` module itself — no product-app or bridge-app items belong here.
+Source of truth: `docs/todo.yaml`. Update YAML before starting or completing work.
 
-## Zephyr Module
+## repo
 
-- [x] Confirm `CONFIG_MQTT_MIN_BROKER=y` builds as a Zephyr module without `CONFIG_MQTT_STANDALONE`
-- [x] Add board-independent Zephyr build smoke test in CI or scripts
-- [x] Verify `zephyr/module.yml`, `zephyr/Kconfig`, and `zephyr/CMakeLists.txt` are complete
+- [x] Add docs/todo.yaml so mqtt_min_broker is tracked globally.
+- [x] Migrate the historical docs/todo.md checklist into structured YAML without losing release and test details.
+- [x] Refactor broker module layout until it passes the module golden sample structure audit.
 
-## Public API
+## validation
 
-- [x] Document the minimal module API and lifecycle (what the embedder must call, in what order)
-- [x] Stable public API documentation (header-level, not a wiki)
+- [x] Reuse dephy_testkit broker and P2P fixtures in broker integration tests where they reduce duplication.
+- [x] Guard unit_session create/find assertions against null dereference after allocation failure.
 
-## Release / Versioning
+## performance
 
-- [x] Add release notes file for module tags (`minmqtt-vX.Y.Z`)
-- [x] Add first stable tag once module API boundaries are confirmed (`minmqtt-v0.1.0`)
-- [x] Merge validated feature branches back into the mainline branch.
-
-## P2P Extension
-
-- [x] Static P2P seed API/config (for environments where UDP broadcast is unavailable)
-- [x] P2P peer status snapshot API (so embedders can query current peer connectivity)
-- [x] P2P route/remote subscription stats API
-
-## Scope Guard
-
-- [x] Keep product-specific provisioning out of the broker core
-
-## Next Iteration Plan
-
-- [x] Add header-level public API docs for broker/session/topic lifecycle and embedder responsibilities
-- [x] Add a Zephyr module smoke script or CI job for `CONFIG_MQTT_MIN_BROKER=y`
-- [x] Add P2P peer/subscription snapshot APIs for dashboard or embedder observability
-- [x] Add malformed-packet integration coverage for SUBSCRIBE requested-QoS parser edge cases
-- [x] Review remaining fixed-size buffers for explicit overflow test coverage
-
-## Test Gaps
-
-- [x] Verify SUBACK returns the correct granted-QoS byte (0x00/0x01/0x02) for each QoS level subscribed (§3.9.3)
-- [x] Verify retained message is cleared when a PUBLISH with zero-length payload is sent to the topic (§3.3.1.3)
-- [x] Verify client-ID takeover with clean_session=1 discards any QoS 2 inflight state from the previous persistent session
-- [x] Verify overlapping subscriptions deliver only one message copy to the subscribing client (§4.7.2)
-- [x] Reject SUBSCRIBE requested-QoS bytes with reserved bits set or QoS=3 (§3.8.3)
+- [x] Add a repeatable P2P routing benchmark for peer count, subscription count, and retained-message paths.
+- [x] Audit fixed-size packet buffers and add explicit high-water or overflow regression coverage.
