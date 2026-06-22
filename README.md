@@ -8,7 +8,13 @@ packet parsing/building, client/session/topic state, retained messages, QoS
 paths, optional dashboard support, and optional broker-to-broker P2P routing.
 Products pin this module instead of copying broker logic into application code.
 
-## What It Provides
+## Overview
+
+Use this repo when a product needs an embeddable MQTT broker or a Linux broker
+for development and tests. The README covers build, test, optional features, and
+module integration without requiring the legacy long document first.
+
+## Key Value
 
 - A compact MQTT broker that can run as a Linux tool or as an embedded module.
 - Packet, topic, session, retained-message, and QoS logic with Linux tests.
@@ -16,7 +22,7 @@ Products pin this module instead of copying broker logic into application code.
 - Optional P2P routing so multiple brokers can exchange messages.
 - POSIX and Zephyr platform adapters around the same portable broker core.
 
-## Normal Flow
+## How To Use
 
 1. Build and test on Linux first.
 2. Enable optional features such as dashboard or P2P only when needed.
