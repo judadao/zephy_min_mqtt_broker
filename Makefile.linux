@@ -71,7 +71,7 @@ KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platf
 SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
 OVERLAP_SUB_SRCS    = tools/overlap_sub_test.c src/packet.c platform/posix/platform_posix.c
 
-.PHONY: all clean test test-all unit-tests test-helpers help
+.PHONY: all clean test test-all unit-tests test-helpers packet-buffer-audit testkit-wrapper help
 
 help:
 	@echo "Linux build targets:"
@@ -134,6 +134,12 @@ unit-tests: $(OUTDIR)
 
 test: all test-helpers unit-tests
 	./scripts/test_broker.sh
+
+packet-buffer-audit: $(OUTDIR)
+	./scripts/audit_packet_buffers.sh
+
+testkit-wrapper:
+	./scripts/test_with_testkit.sh
 
 test-all: all test-helpers unit-tests
 	./scripts/run_all_tests.sh
