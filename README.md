@@ -3,10 +3,49 @@
 Reusable MQTT v3.1.1 broker module for Linux development and Zephyr/ESP32
 embedding.
 
-This repo owns broker behavior: packet parsing/building, client/session/topic
-state, retained messages, QoS paths, optional dashboard, and optional P2P
-broker routing. Product provisioning and field workflows belong in product
-repos that pin this module.
+`mqtt_min_broker` is the broker engine used by Dephy products. It owns MQTT
+packet parsing/building, client/session/topic state, retained messages, QoS
+paths, optional dashboard support, and optional broker-to-broker P2P routing.
+Products pin this module instead of copying broker logic into application code.
+
+## What It Provides
+
+- A compact MQTT broker that can run as a Linux tool or as an embedded module.
+- Packet, topic, session, retained-message, and QoS logic with Linux tests.
+- Optional HTTP dashboard for inspection during development.
+- Optional P2P routing so multiple brokers can exchange messages.
+- POSIX and Zephyr platform adapters around the same portable broker core.
+
+## Normal Flow
+
+1. Build and test on Linux first.
+2. Enable optional features such as dashboard or P2P only when needed.
+3. In a product repo, pin the module in `deps.json`.
+4. Sync it into `deps/` and include public headers from the pinned checkout.
+5. Start the broker from product-owned runtime code.
+
+Commands:
+
+```sh
+make -f Makefile.linux
+make -f Makefile.linux unit-tests
+make -f Makefile.linux test
+make -f Makefile.linux test-all
+make -f Makefile.linux DASHBOARD=1
+make -f Makefile.linux P2P=1 test-all
+```
+
+## How It Works
+
+The broker core is portable C. Platform adapters provide sockets, timers, and
+threading integration. MQTT packets are parsed into bounded internal data
+structures, then routed through topic/session state. Retained messages and QoS
+state live in the broker layer, while product provisioning and field workflows
+remain outside this repo.
+
+P2P mode adds a broker routing layer on top of the same topic model. It is used
+when field nodes need to exchange MQTT traffic through peer brokers rather than
+only through a single central broker.
 
 ## Layout
 
@@ -21,29 +60,14 @@ docs/                design notes and legacy README
 docs/todo.yaml       module TODO source of truth
 ```
 
-## Quick Commands
+## Benchmarks And Audits
 
 ```sh
-make -f Makefile.linux
-make -f Makefile.linux unit-tests
-make -f Makefile.linux test
 make -f Makefile.linux packet-buffer-audit
 make -f Makefile.linux testkit-wrapper
-make -f Makefile.linux P2P=1 test-all
-```
-
-Benchmarks:
-
-```sh
 scripts/bench_p2p_scale.sh
 scripts/bench_p2p_docker_scale.sh
 ```
-
-## Module Use
-
-Product repos should pin this module in `deps.json`, sync it into `deps/`, and
-include public headers from the pinned checkout. Do not copy broker logic into
-product app code.
 
 ## More Docs
 
