@@ -18,3 +18,7 @@ Source of truth: `docs/todo.yaml`. Update YAML before starting or completing wor
 
 - [x] Add a repeatable P2P routing benchmark for peer count, subscription count, and retained-message paths.
 - [x] Audit fixed-size packet buffers and add explicit high-water or overflow regression coverage.
+
+## docs
+
+- [x] Make the broker README quick start clone-to-shell-to-dashboard.

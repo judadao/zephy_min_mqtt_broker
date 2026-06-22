@@ -2,6 +2,18 @@
 
 Reusable MQTT v3.1.1 broker for Linux development and Zephyr/ESP32 embedding.
 
+## Quick Start: Linux Dashboard
+
+```sh
+git clone git@github.com:judadao/zephy_min_mqtt_broker.git
+cd zephy_min_mqtt_broker
+./run_dashboard.sh
+```
+
+Open `http://127.0.0.1:8080/`.
+
+The broker listens for MQTT clients on port `1883`. Stop it with `Ctrl-C`.
+
 ## Overview
 
 `mqtt_min_broker` is the broker engine used by Dephy products. It supports the
@@ -19,7 +31,7 @@ field nodes that need to route messages across multiple brokers.
   or same-host tests without UDP discovery.
 - POSIX and Zephyr adapters around the same portable C broker core.
 
-## How To Use
+## Linux Commands
 
 ```sh
 make -f Makefile.linux

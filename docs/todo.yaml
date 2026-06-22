@@ -60,3 +60,10 @@ items:
   notes: Reduced redundant unit_packet assignments, made immutable packet fixtures
     const, and tightened mqtt_cli HTTP body parsing constness without changing
     public APIs.
+- id: dashboard-one-command-start
+  area: docs
+  title: Make the broker README quick start clone-to-shell-to-dashboard.
+  status: done
+  notes: Added run_dashboard.sh as the root Linux dashboard entry point and updated
+    README so a user can clone the repo, run one shell script, then open the printed
+    dashboard URL.
