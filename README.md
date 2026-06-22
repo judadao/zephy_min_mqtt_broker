@@ -98,3 +98,8 @@ scripts/bench_p2p_docker_scale.sh
 - `docs/mesh_test_matrix.md`: mesh validation matrix.
 - `docs/module_structure.md`: module layout and public contract.
 - `docs/todo.md`: current TODO summary.
+
+## License
+
+MIT. See `LICENSE` and `NOTICE.md`. Reuse and references are allowed, but the
+copyright notice and attribution to Judd (judadao) must be preserved.
