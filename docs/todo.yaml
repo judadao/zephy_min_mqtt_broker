@@ -1,0 +1,30 @@
+version: 1
+policy:
+  source_of_truth: docs/todo.yaml
+  legacy_markdown: docs/todo.md
+  rules:
+  - Use dephy_todo as the global TODO entry point.
+  - Before starting work, add or update the relevant TODO item.
+  - When behavior changes, update TODO status in the same change.
+  - Keep legacy markdown details until they are fully migrated into this YAML.
+items:
+- id: todo-yaml-source
+  area: repo
+  title: Add docs/todo.yaml so mqtt_min_broker is tracked globally.
+  status: done
+- id: migrate-legacy-todo
+  area: repo
+  title: Migrate the historical docs/todo.md checklist into structured YAML without losing release and test details.
+  status: todo
+- id: broker-testkit-fixtures
+  area: validation
+  title: Reuse dephy_testkit broker and P2P fixtures in broker integration tests where they reduce duplication.
+  status: todo
+- id: p2p-scale-benchmark
+  area: performance
+  title: Add a repeatable P2P routing benchmark for peer count, subscription count, and retained-message paths.
+  status: todo
+- id: packet-buffer-audit
+  area: performance
+  title: Audit fixed-size packet buffers and add explicit high-water or overflow regression coverage.
+  status: todo
