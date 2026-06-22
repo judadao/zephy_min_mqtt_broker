@@ -397,8 +397,8 @@ void topic_unsubscribe_all(struct client *c)
     while (1) {
         char removed[MQTT_TOPIC_MAX] = {0};
         int found = 0;
-        int old_count = 0;
-        int new_count = 0;
+        int old_count;
+        int new_count;
         uint8_t old_max_qos = 0;
         uint8_t new_max_qos = 0;
         int notify_unsub = 0;
@@ -526,7 +526,6 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
     uint32_t bucket = topic_hash(pub->topic) % TOPIC_MAX_SUBS;
     if (pub->qos == 0) {
         client_t *targets[TOPIC_MAX_SUBS];
-        int target_count = 0;
         uint8_t shared_buf[MQTT_MAX_PACKET_SIZE + 8];
         mqtt_publish_t shared = *pub;
         int shared_len;
@@ -535,6 +534,7 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
         shared.packet_id = 0;
         shared_len = packet_build_publish(&shared, shared_buf, sizeof(shared_buf));
         if (shared_len > 0) {
+            int target_count = 0;
             for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
                 if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
                     continue;

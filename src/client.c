@@ -402,7 +402,7 @@ void client_disconnect(client_t *c)
 }
 
 /* MQTT 3.1.1 §3.1.4: disconnect any existing client with the same client_id */
-static void client_takeover(client_t *newcomer, const char *client_id)
+static void client_takeover(const client_t *newcomer, const char *client_id)
 {
     plat_mutex_lock(&pool_lock);
     for (int i = 0; i < MQTT_MAX_CLIENTS; i++) {

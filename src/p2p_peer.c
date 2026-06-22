@@ -85,7 +85,7 @@ static int id_equal(const uint8_t *a, const uint8_t *b)
     return memcmp(a, b, P2P_NODE_ID_LEN) == 0;
 }
 
-static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *except);
+static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], const p2p_conn_t *except);
 static void send_sub_to_leaves(const p2p_sub_msg_t *msg, uint8_t type,
                                const uint8_t *exclude_node_id);
 
@@ -613,7 +613,7 @@ static void close_conn(p2p_conn_t *c)
     }
 }
 
-static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *except)
+static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], const p2p_conn_t *except)
 {
     int exists = 0;
 
@@ -630,7 +630,7 @@ static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], p2p_conn_t *excep
 }
 
 static void close_duplicate_conns(const uint8_t node_id[P2P_NODE_ID_LEN],
-                                  p2p_conn_t *except)
+                                  const p2p_conn_t *except)
 {
     plat_mutex_lock(&peer_lock);
     for (int i = 0; i < P2P_PEER_MAX; i++) {
@@ -708,7 +708,7 @@ static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
     }
 }
 
-static void advertise_local_subs_to(p2p_conn_t *c)
+static void advertise_local_subs_to(const p2p_conn_t *c)
 {
     sub_snapshot_t subs[8];
     uint8_t self_id[P2P_NODE_ID_LEN];

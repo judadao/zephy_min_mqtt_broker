@@ -223,12 +223,12 @@ static int do_connect(int fd, const char *client_id,
         return -1;
     }
 
-    static const char *connack_str[] = {
-        "accepted", "unacceptable protocol", "client ID rejected",
-        "server unavailable", "bad credentials", "not authorized"
-    };
     uint8_t rc = pkt.buf[1];
     if (rc != CONNACK_ACCEPTED) {
+        static const char *connack_str[] = {
+            "accepted", "unacceptable protocol", "client ID rejected",
+            "server unavailable", "bad credentials", "not authorized"
+        };
         const char *msg = (rc < 6) ? connack_str[rc] : "refused";
         fprintf(stderr, "error: broker refused connection: %s (code %u)\n", msg, rc);
         return -1;
@@ -509,7 +509,7 @@ static int cmd_status(const char *host, uint16_t port)
     }
     close(fd);
 
-    char *body = strstr(resp, "\r\n\r\n");
+    const char *body = strstr(resp, "\r\n\r\n");
     if (!body) { fprintf(stderr, "error: unexpected HTTP response\n"); return 1; }
     printf("%s\n", body + 4);
     return 0;

@@ -165,12 +165,13 @@ static void test_build_connack(void)
     ASSERT_EQ(out[2], 1, "connack session_present = 1");
 
     /* bad credentials */
-    n = packet_build_connack(0, CONNACK_BAD_CREDENTIALS, out, sizeof(out));
+    ASSERT(packet_build_connack(0, CONNACK_BAD_CREDENTIALS, out, sizeof(out)) == 4,
+           "connack bad-creds build succeeds");
     ASSERT_EQ(out[3], CONNACK_BAD_CREDENTIALS, "connack bad-creds return code");
 
     /* buffer too small → error */
-    n = packet_build_connack(0, 0, out, 3);
-    ASSERT(n < 0, "connack small buffer returns error");
+    ASSERT(packet_build_connack(0, 0, out, 3) < 0,
+           "connack small buffer returns error");
     ASSERT(packet_build_connack(0, 0, NULL, sizeof(out)) < 0,
            "connack NULL output returns error");
     ASSERT(packet_build_connack(0, 0x06, out, sizeof(out)) < 0,
@@ -420,7 +421,7 @@ static void test_parse_publish_null_byte(void)
 
     /* Build a PUBLISH packet with a null byte embedded in the topic.
      * Wire: type=0x30, rem_len, topic_len=5 "ab\x00#\x00", payload */
-    uint8_t topic_wire[] = { 'a', 'b', '\x00', '#', 'x' }; /* 5 bytes, null at [2] */
+    const uint8_t topic_wire[] = { 'a', 'b', '\x00', '#', 'x' }; /* 5 bytes, null at [2] */
     /* packet body: topic_len(2) + topic(5) + payload(1) */
     uint8_t body[10];
     body[0] = 0x00; body[1] = 5; /* topic length = 5 */
@@ -458,7 +459,7 @@ static void test_parse_publish_null_byte(void)
     }
 
     /* topic without null byte should parse fine */
-    uint8_t ok_topic[] = { 'a', 'b', 'c', '/', 'x' };
+    const uint8_t ok_topic[] = { 'a', 'b', 'c', '/', 'x' };
     body[0] = 0x00; body[1] = 5;
     memcpy(body + 2, ok_topic, 5);
     pkt.type_flags = MQTT_PUBLISH;
@@ -692,7 +693,7 @@ static void test_parse_unsubscribe(void)
     raw[p++] = (uint8_t)(l0 >> 8); raw[p++] = (uint8_t)(l0 & 0xFF);
     memcpy(raw + p, t0, l0); p += l0;
     raw[p++] = (uint8_t)(l1 >> 8); raw[p++] = (uint8_t)(l1 & 0xFF);
-    memcpy(raw + p, t1, l1); p += l1;
+    memcpy(raw + p, t1, l1);
 
     mqtt_packet_t pkt;
     pkt.type_flags    = raw[0];
@@ -719,16 +720,18 @@ static void test_parse_unsubscribe(void)
            "unsubscribe empty payload rejected");
 
     /* single topic */
-    p = 0;
     const char *t2 = "single/topic";
     uint16_t l2 = (uint16_t)strlen(t2);
     rem_len = 2 + 2 + l2;
     packet_encode_remaining_len(rem_len, rem_enc, &rem_bytes);
-    raw[p++] = MQTT_UNSUBSCRIBE | 0x02;
-    memcpy(raw + p, rem_enc, rem_bytes); p += rem_bytes;
-    raw[p++] = 0; raw[p++] = 99;
-    raw[p++] = (uint8_t)(l2 >> 8); raw[p++] = (uint8_t)(l2 & 0xFF);
-    memcpy(raw + p, t2, l2);
+    {
+        size_t single_p = 0;
+        raw[single_p++] = MQTT_UNSUBSCRIBE | 0x02;
+        memcpy(raw + single_p, rem_enc, rem_bytes); single_p += rem_bytes;
+        raw[single_p++] = 0; raw[single_p++] = 99;
+        raw[single_p++] = (uint8_t)(l2 >> 8); raw[single_p++] = (uint8_t)(l2 & 0xFF);
+        memcpy(raw + single_p, t2, l2);
+    }
     pkt.type_flags    = raw[0];
     pkt.remaining_len = rem_len;
     memcpy(pkt.buf, raw + 1 + rem_bytes, rem_len);
@@ -836,14 +839,6 @@ static void test_parse_connect_edge(void)
     body[p - 2] = 0x22; /* flags: retain bit set (bit5) but will bit (bit2) = 0 */
     body[p++] = 0x00; body[p++] = 0x02; /* client_id = "ab" */
     body[p++] = 'a'; body[p++] = 'b';
-    pkt.buf_len = p;
-    memcpy(pkt.buf, body, p);
-    /* restore keepalive (body[-2] was changed above — fix header in-place) */
-    pkt.buf[sizeof(hdr) - 2] = 0x00; /* keepalive hi */
-    pkt.buf[sizeof(hdr) - 1] = 0x3C; /* keepalive lo */
-    pkt.buf[sizeof(hdr)]     = 0x22; /* flags: bit5=retain, bit2=0 → no will */
-    pkt.buf_len = sizeof(hdr) + 1 + 2 + 2; /* hdr + flags remap + client_id_len + "ab" */
-    /* Rebuild cleanly */
     p = 0;
     memcpy(body, hdr, sizeof(hdr));
     body[sizeof(hdr) - 3] = 0x22; /* overwrite flags byte (offset 7 in hdr) */

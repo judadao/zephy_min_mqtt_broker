@@ -12,6 +12,7 @@ Source of truth: `docs/todo.yaml`. Update YAML before starting or completing wor
 
 - [x] Reuse dephy_testkit broker and P2P fixtures in broker integration tests where they reduce duplication.
 - [x] Guard unit_session create/find assertions against null dereference after allocation failure.
+- [x] Clean up low-risk cppcheck findings in broker tests and CLI helpers.
 
 ## performance
 

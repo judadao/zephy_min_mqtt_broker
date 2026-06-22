@@ -53,3 +53,10 @@ items:
   notes: cppcheck reported that test_create_find_delete checks session_create()
     for non-null and then immediately dereferences the pointer. Added an early
     return after the failed allocation assertion.
+- id: broker-static-cleanup-pass
+  area: validation
+  title: Clean up low-risk cppcheck findings in broker tests and CLI helpers.
+  status: done
+  notes: Reduced redundant unit_packet assignments, made immutable packet fixtures
+    const, and tightened mqtt_cli HTTP body parsing constness without changing
+    public APIs.
