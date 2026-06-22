@@ -14,17 +14,28 @@ items:
   status: done
 - id: migrate-legacy-todo
   area: repo
-  title: Migrate the historical docs/todo.md checklist into structured YAML without losing release and test details.
+  title: Migrate the historical docs/todo.md checklist into structured YAML without
+    losing release and test details.
   status: todo
 - id: broker-testkit-fixtures
   area: validation
-  title: Reuse dephy_testkit broker and P2P fixtures in broker integration tests where they reduce duplication.
+  title: Reuse dephy_testkit broker and P2P fixtures in broker integration tests where
+    they reduce duplication.
   status: todo
 - id: p2p-scale-benchmark
   area: performance
-  title: Add a repeatable P2P routing benchmark for peer count, subscription count, and retained-message paths.
+  title: Add a repeatable P2P routing benchmark for peer count, subscription count,
+    and retained-message paths.
   status: todo
 - id: packet-buffer-audit
   area: performance
-  title: Audit fixed-size packet buffers and add explicit high-water or overflow regression coverage.
+  title: Audit fixed-size packet buffers and add explicit high-water or overflow regression
+    coverage.
   status: todo
+- id: pass-golden-structure-audit
+  area: repo
+  title: Refactor broker module layout until it passes the module golden sample structure
+    audit.
+  status: done
+  notes: Added docs/module_structure.md and passed module golden sample structure
+    audit.
