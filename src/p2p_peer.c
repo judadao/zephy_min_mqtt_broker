@@ -421,7 +421,13 @@ static void configure_peer_socket(int fd)
     (void)plat_setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
     (void)plat_setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
 #else
-    ARG_UNUSED(fd);
+    struct timeval timeout = {
+        .tv_sec = 2,
+        .tv_usec = 0,
+    };
+
+    (void)plat_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    (void)plat_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 #endif
 }
 
