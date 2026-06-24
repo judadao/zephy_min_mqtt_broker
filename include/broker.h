@@ -22,7 +22,12 @@
  * operation. It owns client allocation and per-client thread startup. When
  * CONFIG_MQTT_P2P_DYNAMIC is enabled, dynamic P2P routing is started by the
  * broker path; embedders do not need a separate P2P init call.
+ *
+ * broker_set_bind_host() optionally restricts the MQTT listener to one IPv4
+ * address before broker_init(). Passing NULL or an empty string restores the
+ * default INADDR_ANY behavior.
  */
+int  broker_set_bind_host(const char *host);
 int  broker_init(void);
 void broker_run(void);
 

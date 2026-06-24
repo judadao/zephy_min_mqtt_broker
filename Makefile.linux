@@ -66,6 +66,9 @@ UNIT_SRCS_SESSION = tests/unit_session.c src/session.c src/packet.c \
                     platform/posix/platform_posix.c
 UNIT_SRCS_TOPIC2  = tests/unit_topic.c src/topic.c src/packet.c \
                     platform/posix/platform_posix.c
+UNIT_SRCS_BROKER_BIND = tests/unit_broker_bind.c src/broker.c src/client.c \
+                    src/topic.c src/session.c src/packet.c \
+                    platform/posix/platform_posix.c
 LWT_CLI_SRCS      = tests/lwt_client.c src/packet.c platform/posix/platform_posix.c
 KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platform_posix.c
 SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
@@ -120,6 +123,7 @@ unit-tests: $(OUTDIR)
 	$(CC) $(CFLAGS) $(UNIT_SRCS_TOPIC)    -o $(OUTDIR)/unit_topic_match
 	$(CC) $(CFLAGS) $(UNIT_SRCS_SESSION)  -o $(OUTDIR)/unit_session  $(LDFLAGS)
 	$(CC) $(CFLAGS) $(UNIT_SRCS_TOPIC2)  -o $(OUTDIR)/unit_topic   $(LDFLAGS)
+	$(CC) $(CFLAGS) $(UNIT_SRCS_BROKER_BIND) -o $(OUTDIR)/unit_broker_bind $(LDFLAGS)
 	@echo ""
 	@echo "--- unit_packet ---"
 	$(OUTDIR)/unit_packet
@@ -132,6 +136,9 @@ unit-tests: $(OUTDIR)
 	@echo ""
 	@echo "--- unit_topic ---"
 	$(OUTDIR)/unit_topic
+	@echo ""
+	@echo "--- unit_broker_bind ---"
+	$(OUTDIR)/unit_broker_bind
 
 test: all test-helpers unit-tests
 	./scripts/test_broker.sh

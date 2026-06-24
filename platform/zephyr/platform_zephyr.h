@@ -38,6 +38,7 @@ typedef struct k_thread  plat_thread_t;
 #define plat_listen      zsock_listen
 #define plat_accept      zsock_accept
 #define plat_connect     zsock_connect
+#define plat_inet_pton   zsock_inet_pton
 #define plat_send        zsock_send
 #define plat_sendto      zsock_sendto
 #define plat_recv        zsock_recv

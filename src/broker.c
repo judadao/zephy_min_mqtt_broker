@@ -1,5 +1,6 @@
 #include "platform/platform.h"
 #include <errno.h>
+#include <string.h>
 #ifndef __ZEPHYR__
 #include <netinet/tcp.h>
 #endif
@@ -16,6 +17,21 @@
 LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
 static int listen_fd = -1;
+static char bind_host[64];
+
+int broker_set_bind_host(const char *host)
+{
+    if (!host || !host[0]) {
+        bind_host[0] = '\0';
+        return 0;
+    }
+    size_t len = strlen(host);
+    if (len >= sizeof(bind_host)) {
+        return -EINVAL;
+    }
+    memcpy(bind_host, host, len + 1);
+    return 0;
+}
 
 static int broker_send_all(int fd, const void *buf, size_t len)
 {
@@ -55,6 +71,7 @@ int broker_init(void)
         .sin_family = AF_INET,
         .sin_port   = htons(MQTT_BROKER_PORT),
     };
+    const char *listen_host = bind_host[0] ? bind_host : "0.0.0.0";
 
     topic_init();
     session_init();
@@ -71,19 +88,29 @@ int broker_init(void)
     int opt = 1;
     plat_setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+    if (bind_host[0] && plat_inet_pton(AF_INET, bind_host, &addr.sin_addr) != 1) {
+        LOG_ERR("invalid bind host: %s", bind_host);
+        plat_close(listen_fd);
+        listen_fd = -1;
+        return -EINVAL;
+    }
+
     if (plat_bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_ERR("bind: %d", errno);
         plat_close(listen_fd);
+        listen_fd = -1;
         return -errno;
     }
 
     if (plat_listen(listen_fd, MQTT_MAX_CLIENTS) < 0) {
         LOG_ERR("listen: %d", errno);
         plat_close(listen_fd);
+        listen_fd = -1;
         return -errno;
     }
 
-    LOG_INF("Listening on port %d (max %d clients)", MQTT_BROKER_PORT, MQTT_MAX_CLIENTS);
+    LOG_INF("Listening on %s:%d (max %d clients)", listen_host,
+            MQTT_BROKER_PORT, MQTT_MAX_CLIENTS);
     return 0;
 }
 
