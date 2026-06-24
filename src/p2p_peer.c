@@ -71,12 +71,13 @@ PLAT_MUTEX_DEFINE(seed_lock);
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
+#define P2P_PEER_STACK_SIZE 3072
 static struct k_thread accept_thread;
 static struct k_thread connect_thread;
 static struct k_thread peer_threads[P2P_PEER_MAX];
 static K_THREAD_STACK_DEFINE(accept_stack, P2P_STACK_SIZE);
 static K_THREAD_STACK_DEFINE(connect_stack, P2P_STACK_SIZE);
-static K_THREAD_STACK_ARRAY_DEFINE(peer_stacks, P2P_PEER_MAX, P2P_STACK_SIZE);
+static K_THREAD_STACK_ARRAY_DEFINE(peer_stacks, P2P_PEER_MAX, P2P_PEER_STACK_SIZE);
 #else
 static pthread_t accept_thread;
 static pthread_t connect_thread;
