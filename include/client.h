@@ -4,7 +4,11 @@
 #include "platform/platform.h"
 #include "packet.h"
 
+#ifdef __ZEPHYR__
+#define CLIENT_STACK_SIZE        3072
+#else
 #define CLIENT_STACK_SIZE        2048
+#endif
 #define CLIENT_INFLIGHT_MAX      4
 #define CLIENT_INFLIGHT_RETRY_MS 5000
 #define CLIENT_QOS2_IN_MAX       4   /* max simultaneous inbound QoS-2 publishes */
