@@ -1043,9 +1043,11 @@ static void connect_loop(void *p1, void *p2, void *p3)
 
             for (int i = 0; i < seed_count; i++) {
                 connected += connect_to_addr(seeds[i].addr, seeds[i].p2p_port);
+#if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
                 if (budget > 0 && connected >= budget) {
                     break;
                 }
+#endif
             }
         }
 
@@ -1219,10 +1221,9 @@ void p2p_local_subscribe(const char *filter, uint8_t qos)
     msg.qos = qos;
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
-        if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_SUB_NOTIFY)) {
-            p2p_send_sub_to_routers(&msg, P2P_SUB_NOTIFY, NULL);
-        }
+        (void)send_sub_to_node_unlocked(owner_id, &msg, P2P_SUB_NOTIFY);
     }
+    p2p_send_sub_to_routers(&msg, P2P_SUB_NOTIFY, NULL);
 }
 
 void p2p_local_unsubscribe(const char *filter)
@@ -1238,10 +1239,9 @@ void p2p_local_unsubscribe(const char *filter)
     memcpy(self_id, msg.owner_id, P2P_NODE_ID_LEN);
     if (p2p_shard_owner_for_filter(filter, owner_id) &&
         id_cmp(owner_id, self_id) != 0) {
-        if (!send_sub_to_node_unlocked(owner_id, &msg, P2P_UNSUB_NOTIFY)) {
-            p2p_send_sub_to_routers(&msg, P2P_UNSUB_NOTIFY, NULL);
-        }
+        (void)send_sub_to_node_unlocked(owner_id, &msg, P2P_UNSUB_NOTIFY);
     }
+    p2p_send_sub_to_routers(&msg, P2P_UNSUB_NOTIFY, NULL);
 }
 
 void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,

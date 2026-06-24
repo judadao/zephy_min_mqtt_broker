@@ -120,6 +120,9 @@ int p2p_election_peer_budget(int active_nodes)
     if (max_degree > P2P_PEER_MAX) {
         max_degree = P2P_PEER_MAX;
     }
+#if defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+    return max_degree;
+#endif
 #if P2P_ROUTER_COUNT > 0
     if (P2P_ROUTER_COUNT < max_degree) {
         max_degree = P2P_ROUTER_COUNT;
@@ -234,6 +237,21 @@ static int recompute_role_locked(void)
     st.peers[0].score = local_score();
     st.peers[0].role = (uint8_t)st.role;
     st.peers[0].last_seen_ms = plat_uptime_ms();
+
+#if defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
+    st.role = P2P_ROLE_ROUTER;
+    st.peers[0].role = (uint8_t)st.role;
+    for (int i = 0; i <= P2P_PEER_MAX; i++) {
+        if (st.peers[i].in_use) {
+            sig = hash_update(sig, st.peers[i].node_id, P2P_NODE_ID_LEN);
+        }
+    }
+    st.topology_sig = sig;
+    if (old_role != st.role) {
+        LOG_INF("P2P role changed: %s", st.role == P2P_ROLE_ROUTER ? "ROUTER" : "LEAF");
+    }
+    return old_role != st.role || old_sig != st.topology_sig;
+#endif
 
     for (int i = 0; i <= P2P_PEER_MAX; i++) {
         if (st.peers[i].in_use) {
