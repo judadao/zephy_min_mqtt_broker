@@ -5,7 +5,7 @@
 #include "packet.h"
 
 #ifdef __ZEPHYR__
-#define CLIENT_STACK_SIZE        4096
+#define CLIENT_STACK_SIZE        8192
 #else
 #define CLIENT_STACK_SIZE        2048
 #endif
