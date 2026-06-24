@@ -68,6 +68,9 @@ PLAT_MUTEX_DEFINE(send_meta_lock);
 static plat_mutex_t send_locks[P2P_PEER_MAX];
 static p2p_static_seed_t static_seeds[P2P_STATIC_SEED_MAX];
 PLAT_MUTEX_DEFINE(seed_lock);
+PLAT_MUTEX_DEFINE(local_publish_lock);
+static p2p_publish_msg_t local_publish_msg;
+static uint8_t local_publish_frame[P2P_PUBLISH_FRAME_MAX];
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -1252,42 +1255,47 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
 
 void p2p_publish_from_local(const mqtt_publish_t *pub)
 {
-    p2p_publish_msg_t msg = {0};
-    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
+    p2p_publish_msg_t *msg = &local_publish_msg;
+    uint8_t *frame = local_publish_frame;
     uint16_t frame_len = 0;
     uint8_t owner_id[P2P_NODE_ID_LEN];
     uint8_t self_id[P2P_NODE_ID_LEN];
 
+    plat_mutex_lock(&local_publish_lock);
+    memset(msg, 0, sizeof(*msg));
     if (!pub ||
         pub->qos > 2 ||
         pub->payload_len > MQTT_PAYLOAD_MAX ||
-        !copy_cstr_bounded(msg.topic, sizeof(msg.topic), pub->topic)) {
+        !copy_cstr_bounded(msg->topic, sizeof(msg->topic), pub->topic)) {
+        plat_mutex_unlock(&local_publish_lock);
         return;
     }
-    p2p_election_self_id(msg.origin_id);
-    memcpy(self_id, msg.origin_id, P2P_NODE_ID_LEN);
-    msg.seq = ++local_seq;
-    msg.payload_len = pub->payload_len;
-    msg.qos = pub->qos;
-    msg.retain = pub->retain;
-    memcpy(msg.payload, pub->payload, pub->payload_len);
+    p2p_election_self_id(msg->origin_id);
+    memcpy(self_id, msg->origin_id, P2P_NODE_ID_LEN);
+    msg->seq = ++local_seq;
+    msg->payload_len = pub->payload_len;
+    msg->qos = pub->qos;
+    msg->retain = pub->retain;
+    memcpy(msg->payload, pub->payload, pub->payload_len);
 
-    if (build_publish_frame(&msg, frame, sizeof(frame), &frame_len) < 0) {
+    if (build_publish_frame(msg, frame, P2P_PUBLISH_FRAME_MAX, &frame_len) < 0) {
+        plat_mutex_unlock(&local_publish_lock);
         return;
     }
     if (!p2p_shard_owner_for_topic(pub->topic, owner_id) ||
         id_cmp(owner_id, self_id) == 0) {
-        if (!p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL)) {
+        if (!p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, NULL)) {
             flood_publish_to_connected_peers(frame, frame_len, NULL);
         }
     } else {
         if (!send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len)) {
             /* Direct path to shard owner unavailable; try route table. */
-            if (!p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL)) {
+            if (!p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, NULL)) {
                 /* No routes (leaf with empty table): flood to all connected peers.
                  * They will route via their own subscription tables. */
                 flood_publish_to_connected_peers(frame, frame_len, NULL);
             }
         }
     }
+    plat_mutex_unlock(&local_publish_lock);
 }
