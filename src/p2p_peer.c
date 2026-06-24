@@ -280,23 +280,18 @@ static int build_publish_frame(const p2p_publish_msg_t *msg,
 
 static int send_frame(int fd, uint8_t type, const void *payload, uint16_t len)
 {
-    uint8_t frame[sizeof(p2p_hdr_t) + P2P_PUBLISH_FRAME_MAX];
     p2p_hdr_t hdr = {
         .type = type,
         .len = htons(len),
     };
     int rc = 0;
 
-    if (sizeof(hdr) + len > sizeof(frame)) {
+    if (len > P2P_PUBLISH_FRAME_MAX) {
         return -1;
     }
 
-    memcpy(frame, &hdr, sizeof(hdr));
-    if (len > 0) {
-        memcpy(frame + sizeof(hdr), payload, len);
-    }
-
-    if (send_all(fd, frame, sizeof(hdr) + len) < 0) {
+    if (send_all(fd, &hdr, sizeof(hdr)) < 0 ||
+        (len > 0 && send_all(fd, payload, len) < 0)) {
         rc = -1;
     }
     return rc;
