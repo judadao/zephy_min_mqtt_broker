@@ -489,6 +489,39 @@ static MQTT_NOINLINE void topic_publish_qos0_locked(const mqtt_publish_t *pub,
                                                     uint32_t bucket)
 {
     client_t *targets[TOPIC_MAX_SUBS];
+    int target_count = 0;
+
+    for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
+        if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
+            continue;
+        }
+        /* dedup: skip if client already queued */
+        int dup = 0;
+        for (int d = 0; d < target_count; d++) {
+            if (targets[d] == subs[idx].client) { dup = 1; break; }
+        }
+        if (!dup) targets[target_count++] = subs[idx].client;
+    }
+    for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
+        if (!subs[idx].in_use) {
+            continue;
+        }
+        if (!topic_match(subs[idx].filter, pub->topic)) {
+            continue;
+        }
+        /* dedup: skip if client already queued */
+        int dup = 0;
+        for (int d = 0; d < target_count; d++) {
+            if (targets[d] == subs[idx].client) { dup = 1; break; }
+        }
+        if (!dup) targets[target_count++] = subs[idx].client;
+    }
+    plat_mutex_unlock(&topic_lock);
+
+    if (target_count <= 0) {
+        return;
+    }
+
     uint8_t shared_buf[MQTT_MAX_PACKET_SIZE + 8];
     mqtt_publish_t shared = *pub;
     int shared_len;
@@ -496,40 +529,12 @@ static MQTT_NOINLINE void topic_publish_qos0_locked(const mqtt_publish_t *pub,
     shared.retain = 0;
     shared.packet_id = 0;
     shared_len = packet_build_publish(&shared, shared_buf, sizeof(shared_buf));
-    if (shared_len > 0) {
-        int target_count = 0;
-        for (int idx = exact_heads[bucket]; idx >= 0; idx = subs[idx].exact_next) {
-            if (!subs[idx].in_use || strcmp(subs[idx].filter, pub->topic) != 0) {
-                continue;
-            }
-            /* dedup: skip if client already queued */
-            int dup = 0;
-            for (int d = 0; d < target_count; d++) {
-                if (targets[d] == subs[idx].client) { dup = 1; break; }
-            }
-            if (!dup) targets[target_count++] = subs[idx].client;
-        }
-        for (int idx = wildcard_head; idx >= 0; idx = subs[idx].wildcard_next) {
-            if (!subs[idx].in_use) {
-                continue;
-            }
-            if (!topic_match(subs[idx].filter, pub->topic)) {
-                continue;
-            }
-            /* dedup: skip if client already queued */
-            int dup = 0;
-            for (int d = 0; d < target_count; d++) {
-                if (targets[d] == subs[idx].client) { dup = 1; break; }
-            }
-            if (!dup) targets[target_count++] = subs[idx].client;
-        }
-        plat_mutex_unlock(&topic_lock);
+    if (shared_len <= 0) {
+        return;
+    }
 
-        for (int i = 0; i < target_count; i++) {
-            client_send(targets[i], shared_buf, (size_t)shared_len);
-        }
-    } else {
-        plat_mutex_unlock(&topic_lock);
+    for (int i = 0; i < target_count; i++) {
+        client_send(targets[i], shared_buf, (size_t)shared_len);
     }
 }
 
