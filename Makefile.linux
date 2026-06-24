@@ -71,7 +71,7 @@ KEEPALIVE_CLI_SRCS  = tests/keepalive_client.c src/packet.c platform/posix/platf
 SLOW_PUBACK_SRCS    = tests/slow_puback_client.c src/packet.c platform/posix/platform_posix.c
 OVERLAP_SUB_SRCS    = tools/overlap_sub_test.c src/packet.c platform/posix/platform_posix.c
 
-.PHONY: all clean test test-all unit-tests test-helpers packet-buffer-audit testkit-wrapper help
+.PHONY: all clean test test-all unit-tests test-helpers packet-buffer-audit testkit-wrapper p2p-static-chain-test help
 
 help:
 	@echo "Linux build targets:"
@@ -104,6 +104,7 @@ help:
 	@echo "  ./scripts/test_keepalive.sh           # keepalive enforcement (~20s)"
 	@echo "  ./scripts/test_inflight_retry.sh      # QoS1 DUP retry (~20s)"
 	@echo "  ./scripts/test_p2p_dynamic.sh         # two-node P2P routing"
+	@echo "  ./scripts/test_p2p_static_chain.sh    # static-seed chain roundtrip"
 	@echo "  ./scripts/test_dashboard.sh           # HTTP REST API (DASHBOARD=1)"
 
 all: $(OUTDIR) $(BROKER_BIN) $(CLI_BIN)
@@ -134,6 +135,9 @@ unit-tests: $(OUTDIR)
 
 test: all test-helpers unit-tests
 	./scripts/test_broker.sh
+
+p2p-static-chain-test: all
+	./scripts/test_p2p_static_chain.sh
 
 packet-buffer-audit: $(OUTDIR)
 	./scripts/audit_packet_buffers.sh
