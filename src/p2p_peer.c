@@ -71,6 +71,9 @@ PLAT_MUTEX_DEFINE(seed_lock);
 PLAT_MUTEX_DEFINE(local_publish_lock);
 static p2p_publish_msg_t local_publish_msg;
 static uint8_t local_publish_frame[P2P_PUBLISH_FRAME_MAX];
+static uint8_t peer_rx_bufs[P2P_PEER_MAX][P2P_PUBLISH_FRAME_MAX];
+static p2p_publish_msg_t peer_publish_msgs[P2P_PEER_MAX];
+static mqtt_publish_t peer_mqtt_pubs[P2P_PEER_MAX];
 
 #ifdef __ZEPHYR__
 #define P2P_STACK_SIZE 1280
@@ -681,23 +684,30 @@ static int connected_peer_count(void)
 
 static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
 {
+    int slot = conn_slot(c);
+    mqtt_publish_t *pub;
+
+    if (slot < 0 || slot >= P2P_PEER_MAX) {
+        return;
+    }
     if (seen_before(msg)) {
         return;
     }
 
-    mqtt_publish_t pub = {0};
-    strncpy(pub.topic, msg->topic, sizeof(pub.topic) - 1);
+    pub = &peer_mqtt_pubs[slot];
+    memset(pub, 0, sizeof(*pub));
+    strncpy(pub->topic, msg->topic, sizeof(pub->topic) - 1);
     if (msg->payload_len > MQTT_PAYLOAD_MAX) {
         return;
     }
-    memcpy(pub.payload, msg->payload, msg->payload_len);
-    pub.payload_len = msg->payload_len;
-    pub.qos = msg->qos;
-    pub.retain = msg->retain;
+    memcpy(pub->payload, msg->payload, msg->payload_len);
+    pub->payload_len = msg->payload_len;
+    pub->qos = msg->qos;
+    pub->retain = msg->retain;
 #ifdef P2P_BENCH_TRACE
-    LOG_INF("P2P recv publish topic=%s from peer", pub.topic);
+    LOG_INF("P2P recv publish topic=%s from peer", pub->topic);
 #endif
-    topic_publish_remote(&pub);
+    topic_publish_remote(pub);
 
     if (p2p_election_role() == P2P_ROLE_ROUTER) {
         /*
@@ -755,15 +765,22 @@ void p2p_resync_local_subscriptions(void)
 static void peer_loop(void *p1, void *p2, void *p3)
 {
     p2p_conn_t *c = (p2p_conn_t *)p1;
-    uint8_t buf[P2P_PUBLISH_FRAME_MAX];
+    int slot = conn_slot(c);
+    uint8_t *buf;
     uint8_t type;
     uint16_t len;
 
     ARG_UNUSED(p2);
     ARG_UNUSED(p3);
 
+    if (slot < 0 || slot >= P2P_PEER_MAX) {
+        close_conn(c);
+        return;
+    }
+    buf = peer_rx_bufs[slot];
+
     if (send_hello(c->fd) < 0 ||
-        recv_frame(c->fd, &type, buf, sizeof(buf), &len) < 0 ||
+        recv_frame(c->fd, &type, buf, P2P_PUBLISH_FRAME_MAX, &len) < 0 ||
         type != P2P_HELLO || len != sizeof(p2p_announce_t)) {
         close_conn(c);
         return;
@@ -790,7 +807,7 @@ static void peer_loop(void *p1, void *p2, void *p3)
     LOG_INF("P2P peer connected role=%s", c->role == P2P_ROLE_ROUTER ? "ROUTER" : "LEAF");
     advertise_local_subs_to(c);
 
-    while (recv_frame(c->fd, &type, buf, sizeof(buf), &len) == 0) {
+    while (recv_frame(c->fd, &type, buf, P2P_PUBLISH_FRAME_MAX, &len) == 0) {
         if (type == P2P_SUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
             int changed = p2p_router_remote_subscribe(sub->owner_id, sub->filter,
@@ -809,9 +826,9 @@ static void peer_loop(void *p1, void *p2, void *p3)
                 send_sub_to_leaves(sub, P2P_UNSUB_NOTIFY, c->node_id);
             }
         } else if (type == P2P_PUBLISH) {
-            p2p_publish_msg_t msg;
-            if (parse_publish_frame(buf, len, &msg) == 0) {
-                handle_publish(c, &msg);
+            p2p_publish_msg_t *msg = &peer_publish_msgs[slot];
+            if (parse_publish_frame(buf, len, msg) == 0) {
+                handle_publish(c, msg);
             }
         } else if (type == P2P_HELLO && len == sizeof(p2p_announce_t)) {
             ann = (p2p_announce_t *)buf;
