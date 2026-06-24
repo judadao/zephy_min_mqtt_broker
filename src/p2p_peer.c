@@ -23,7 +23,9 @@ typedef struct {
     uint32_t addr;
     uint16_t p2p_port;
     uint8_t outbound;
+#ifndef __ZEPHYR__
     plat_thread_t thread;
+#endif
 } p2p_conn_t;
 
 typedef struct {
@@ -71,6 +73,7 @@ PLAT_MUTEX_DEFINE(seed_lock);
 #define P2P_STACK_SIZE 1280
 static struct k_thread accept_thread;
 static struct k_thread connect_thread;
+static struct k_thread peer_threads[P2P_PEER_MAX];
 static K_THREAD_STACK_DEFINE(accept_stack, P2P_STACK_SIZE);
 static K_THREAD_STACK_DEFINE(connect_stack, P2P_STACK_SIZE);
 static K_THREAD_STACK_ARRAY_DEFINE(peer_stacks, P2P_PEER_MAX, P2P_STACK_SIZE);
@@ -827,7 +830,7 @@ static void spawn_peer(p2p_conn_t *c)
 {
 #ifdef __ZEPHYR__
     int slot = (int)(c - conns);
-    k_thread_create(&c->thread, peer_stacks[slot], K_THREAD_STACK_SIZEOF(peer_stacks[slot]),
+    k_thread_create(&peer_threads[slot], peer_stacks[slot], K_THREAD_STACK_SIZEOF(peer_stacks[slot]),
                     peer_loop, c, NULL, NULL, 6, 0, K_NO_WAIT);
 #else
     int rc = pthread_create(&c->thread, NULL, peer_main, c);
