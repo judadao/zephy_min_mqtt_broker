@@ -1282,7 +1282,9 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     }
     if (!p2p_shard_owner_for_topic(pub->topic, owner_id) ||
         id_cmp(owner_id, self_id) == 0) {
-        p2p_router_publish(&msg, NULL);
+        if (!p2p_send_publish_from_router_prebuilt(&msg, frame, frame_len, NULL)) {
+            flood_publish_to_connected_peers(frame, frame_len, NULL);
+        }
     } else {
         if (!send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len)) {
             /* Direct path to shard owner unavailable; try route table. */
