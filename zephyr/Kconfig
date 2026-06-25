@@ -17,6 +17,16 @@ config MQTT_MAX_CLIENTS
 	  Maximum simultaneous MQTT clients. Smaller embedded targets can lower this
 	  to reduce client state and per-client stack allocation.
 
+config MQTT_ADMISSION_MAX_CLIENTS
+	int "Maximum locally admitted MQTT clients"
+	default MQTT_MAX_CLIENTS
+	range 1 32
+	help
+	  Maximum MQTT clients this broker will admit locally before returning
+	  CONNACK server-unavailable to new connections. Keep this lower than
+	  MQTT_MAX_CLIENTS to reserve resources for bridge forwarding and make
+	  clients fall back to another broker.
+
 config MQTT_STANDALONE
 	bool "Include built-in main() and WiFi init"
 	depends on WIFI

@@ -18,6 +18,7 @@ LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 
 static int listen_fd = -1;
 static char bind_host[64];
+static uint16_t admission_limit = MQTT_ADMISSION_MAX_CLIENTS;
 
 int broker_set_bind_host(const char *host)
 {
@@ -30,6 +31,19 @@ int broker_set_bind_host(const char *host)
         return -EINVAL;
     }
     memcpy(bind_host, host, len + 1);
+    return 0;
+}
+
+int broker_set_admission_limit(uint16_t max_clients)
+{
+    if (max_clients == 0) {
+        admission_limit = MQTT_ADMISSION_MAX_CLIENTS;
+        return 0;
+    }
+    if (max_clients > MQTT_MAX_CLIENTS) {
+        return -EINVAL;
+    }
+    admission_limit = max_clients;
     return 0;
 }
 
@@ -63,6 +77,19 @@ static void configure_client_socket(int fd)
 #else
     ARG_UNUSED(fd);
 #endif
+}
+
+static void reject_server_unavailable(int fd, const char *reason)
+{
+    uint8_t rej[4];
+    int rlen;
+
+    LOG_WRN("%s, sending CONNACK SERVER_UNAVAIL fd=%d", reason, fd);
+    rlen = packet_build_connack(0, CONNACK_SERVER_UNAVAIL, rej, sizeof(rej));
+    if (rlen > 0) {
+        (void)broker_send_all(fd, rej, (size_t)rlen);
+    }
+    plat_close(fd);
 }
 
 int broker_init(void)
@@ -109,8 +136,12 @@ int broker_init(void)
         return -errno;
     }
 
-    LOG_INF("Listening on %s:%d (max %d clients)", listen_host,
-            MQTT_BROKER_PORT, MQTT_MAX_CLIENTS);
+    if (admission_limit > MQTT_MAX_CLIENTS) {
+        admission_limit = MQTT_MAX_CLIENTS;
+    }
+
+    LOG_INF("Listening on %s:%d (max %d clients, admission %u)",
+            listen_host, MQTT_BROKER_PORT, MQTT_MAX_CLIENTS, admission_limit);
     return 0;
 }
 
@@ -129,15 +160,15 @@ void broker_run(void)
 
         LOG_INF("New TCP connection fd=%d", fd);
 
+        if (admission_limit < MQTT_MAX_CLIENTS &&
+            client_used_slots() >= admission_limit) {
+            reject_server_unavailable(fd, "Admission limit reached");
+            continue;
+        }
+
         if (client_alloc(fd) < 0) {
-            LOG_WRN("No free client slots, sending CONNACK SERVER_UNAVAIL fd=%d", fd);
             /* MQTT 3.1.1 §3.2.2.3: send SERVER_UNAVAILABLE then close */
-            uint8_t rej[4];
-            int rlen = packet_build_connack(0, CONNACK_SERVER_UNAVAIL, rej, sizeof(rej));
-            if (rlen > 0) {
-                (void)broker_send_all(fd, rej, (size_t)rlen);
-            }
-            plat_close(fd);
+            reject_server_unavailable(fd, "No free client slots");
         }
     }
 }

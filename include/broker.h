@@ -1,12 +1,18 @@
 #ifndef BROKER_H
 #define BROKER_H
 
+#include <stdint.h>
+
 #ifndef MQTT_BROKER_PORT
 #define MQTT_BROKER_PORT   1883
 #endif
 
 #ifndef MQTT_MAX_CLIENTS
 #define MQTT_MAX_CLIENTS   8
+#endif
+
+#ifndef MQTT_ADMISSION_MAX_CLIENTS
+#define MQTT_ADMISSION_MAX_CLIENTS MQTT_MAX_CLIENTS
 #endif
 
 /*
@@ -26,8 +32,14 @@
  * broker_set_bind_host() optionally restricts the MQTT listener to one IPv4
  * address before broker_init(). Passing NULL or an empty string restores the
  * default INADDR_ANY behavior.
+ *
+ * broker_set_admission_limit() optionally caps the number of local MQTT clients
+ * accepted by this broker. New CONNECT attempts beyond the limit receive
+ * CONNACK SERVER_UNAVAILABLE so clients can fall back to another bridge broker.
+ * Passing 0 restores the compile-time default.
  */
 int  broker_set_bind_host(const char *host);
+int  broker_set_admission_limit(uint16_t max_clients);
 int  broker_init(void);
 void broker_run(void);
 

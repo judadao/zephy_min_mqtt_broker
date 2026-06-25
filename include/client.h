@@ -70,6 +70,7 @@ typedef struct {
  */
 int  client_get_snapshots(client_snapshot_t *out, int max);
 int  client_free_slots(void);
+int  client_used_slots(void);
 
 /*
  * Client-pool lifecycle and per-client worker entry points.

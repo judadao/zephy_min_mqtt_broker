@@ -36,6 +36,9 @@ endif
 ifdef MQTT_PORT
 CFLAGS += -DMQTT_BROKER_PORT=$(MQTT_PORT)
 endif
+ifdef ADMISSION_MAX_CLIENTS
+CFLAGS += -DMQTT_ADMISSION_MAX_CLIENTS=$(ADMISSION_MAX_CLIENTS)
+endif
 ifdef P2P_PORT
 CFLAGS += -DP2P_PORT=$(P2P_PORT)
 endif
@@ -102,6 +105,7 @@ help:
 	@echo "  ./scripts/test_malformed.sh           # malformed/garbage packets"
 	@echo "  ./scripts/test_large_payload.sh       # large payloads, LWT+session"
 	@echo "  ./scripts/test_auth.sh                # username/password auth"
+	@echo "  ./scripts/test_admission_fallback.sh  # admission-limit fallback"
 	@echo "  ./scripts/test_stress.sh              # concurrent connections"
 	@echo "  ./scripts/test_zephyr_module.sh       # Zephyr module metadata/build smoke"
 	@echo "  ./scripts/test_keepalive.sh           # keepalive enforcement (~20s)"
