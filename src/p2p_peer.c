@@ -76,8 +76,8 @@ static p2p_publish_msg_t peer_publish_msgs[P2P_PEER_MAX];
 static mqtt_publish_t peer_mqtt_pubs[P2P_PEER_MAX];
 
 #ifdef __ZEPHYR__
-#define P2P_STACK_SIZE 1280
-#define P2P_PEER_STACK_SIZE 3072
+#define P2P_STACK_SIZE 2048
+#define P2P_PEER_STACK_SIZE 3584
 static struct k_thread accept_thread;
 static struct k_thread connect_thread;
 static struct k_thread peer_threads[P2P_PEER_MAX];
