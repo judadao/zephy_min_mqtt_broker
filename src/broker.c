@@ -19,6 +19,8 @@ LOG_MODULE_REGISTER(mqtt_broker, LOG_LEVEL_INF);
 static int listen_fd = -1;
 static char bind_host[64];
 static uint16_t admission_limit = MQTT_ADMISSION_MAX_CLIENTS;
+static broker_activity_cb_t activity_cb;
+static void *activity_ctx;
 
 int broker_set_bind_host(const char *host)
 {
@@ -45,6 +47,21 @@ int broker_set_admission_limit(uint16_t max_clients)
     }
     admission_limit = max_clients;
     return 0;
+}
+
+void broker_set_activity_callback(broker_activity_cb_t cb, void *ctx)
+{
+    activity_cb = cb;
+    activity_ctx = ctx;
+}
+
+void broker_notify_activity(void)
+{
+    broker_activity_cb_t cb = activity_cb;
+
+    if (cb) {
+        cb(activity_ctx);
+    }
 }
 
 static int broker_send_all(int fd, const void *buf, size_t len)

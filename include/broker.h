@@ -15,6 +15,8 @@
 #define MQTT_ADMISSION_MAX_CLIENTS MQTT_MAX_CLIENTS
 #endif
 
+typedef void (*broker_activity_cb_t)(void *ctx);
+
 /*
  * Public broker lifecycle for standalone and embedded use.
  *
@@ -37,9 +39,15 @@
  * accepted by this broker. New CONNECT attempts beyond the limit receive
  * CONNACK SERVER_UNAVAILABLE so clients can fall back to another bridge broker.
  * Passing 0 restores the compile-time default.
+ *
+ * broker_set_activity_callback() registers a lightweight callback that is
+ * invoked after a publish is accepted into the local topic router. It is meant
+ * for embedders that need activity indicators and must not block.
  */
 int  broker_set_bind_host(const char *host);
 int  broker_set_admission_limit(uint16_t max_clients);
+void broker_set_activity_callback(broker_activity_cb_t cb, void *ctx);
+void broker_notify_activity(void);
 int  broker_init(void);
 void broker_run(void);
 

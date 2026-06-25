@@ -1,5 +1,6 @@
 #include <string.h>
 #include "platform/platform.h"
+#include "broker.h"
 #include "topic.h"
 #include "client.h"
 #include "session.h"
@@ -9,6 +10,12 @@
 #endif
 
 LOG_MODULE_REGISTER(mqtt_topic, LOG_LEVEL_DBG);
+
+#if defined(__GNUC__)
+__attribute__((weak)) void broker_notify_activity(void)
+{
+}
+#endif
 
 #if defined(__GNUC__)
 #define MQTT_NOINLINE __attribute__((noinline))
@@ -647,6 +654,7 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 
     /* queue for offline persistent-session subscribers (QoS 0 skipped inside) */
     session_offline_publish(pub, topic_match);
+    broker_notify_activity();
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
     if (propagate) {
 #ifdef P2P_BENCH_TRACE
