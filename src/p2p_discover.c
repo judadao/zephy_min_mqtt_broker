@@ -1,6 +1,10 @@
 #include "platform/platform.h"
 #include <string.h>
 
+#if defined(__ZEPHYR__) && defined(CONFIG_HWINFO)
+#include <zephyr/drivers/hwinfo.h>
+#endif
+
 #ifndef __ZEPHYR__
 #include <stdlib.h>
 #include <time.h>
@@ -27,6 +31,26 @@ static pthread_t listen_thread;
 
 static void make_node_id(uint8_t out[P2P_NODE_ID_LEN])
 {
+#if defined(__ZEPHYR__) && defined(CONFIG_HWINFO)
+    uint8_t device_id[32];
+    ssize_t len = hwinfo_get_device_id(device_id, sizeof(device_id));
+
+    if (len > 0) {
+        uint32_t hash = 2166136261u;
+
+        for (int i = 0; i < P2P_NODE_ID_LEN; i++) {
+            uint8_t b = device_id[(size_t)i % (size_t)len];
+
+            hash ^= b;
+            hash *= 16777619u;
+            hash ^= (uint8_t)i;
+            hash *= 16777619u;
+            out[i] = (uint8_t)(hash >> 24);
+        }
+        return;
+    }
+#endif
+
     uint32_t seed = (uint32_t)plat_uptime_ms();
 #ifndef __ZEPHYR__
     seed ^= (uint32_t)getpid();
