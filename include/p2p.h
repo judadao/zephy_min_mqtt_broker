@@ -27,6 +27,9 @@
 #ifndef P2P_CONNECT_MS
 #define P2P_CONNECT_MS        3000
 #endif
+#ifndef P2P_CONNECT_BACKOFF_MAX_MS
+#define P2P_CONNECT_BACKOFF_MAX_MS 30000
+#endif
 #ifndef P2P_PEER_TIMEOUT_MS
 #define P2P_PEER_TIMEOUT_MS   15000
 #endif

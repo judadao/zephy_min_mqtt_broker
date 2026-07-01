@@ -125,6 +125,25 @@ config MQTT_P2P_PEER_MAX
 	  RAM-constrained targets to reduce peer state, route tables, and
 	  per-peer thread stack allocation.
 
+config MQTT_P2P_CONNECT_MS
+	int "P2P connection maintenance interval"
+	depends on MQTT_P2P_DYNAMIC
+	default 3000
+	range 1000 60000
+	help
+	  Base interval for P2P connection maintenance. Static seed reconnects
+	  use this as the initial retry delay.
+
+config MQTT_P2P_CONNECT_BACKOFF_MAX_MS
+	int "P2P static seed reconnect backoff limit"
+	depends on MQTT_P2P_DYNAMIC
+	default 30000
+	range 3000 300000
+	help
+	  Maximum per-seed retry delay after repeated static seed connection
+	  failures. This reduces connection storms when several embedded nodes
+	  boot or recover at the same time.
+
 config MQTT_P2P_REMOTE_SUBS_PER_NODE
 	int "Remote subscriptions tracked per P2P node"
 	depends on MQTT_P2P_DYNAMIC

@@ -43,6 +43,8 @@ typedef struct {
     uint32_t addr;
     uint16_t p2p_port;
     uint8_t in_use;
+    uint32_t retry_delay_ms;
+    int64_t next_attempt_ms;
 } p2p_static_seed_t;
 
 typedef struct {
@@ -269,6 +271,44 @@ int p2p_static_seed_add(uint32_t addr, uint16_t p2p_port)
     }
     plat_mutex_unlock(&seed_lock);
     return -1;
+}
+
+static uint32_t seed_retry_jitter_ms(uint32_t addr, uint16_t p2p_port)
+{
+    uint32_t h = addr ^ ((uint32_t)p2p_port << 16) ^ (uint32_t)p2p_port;
+
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return h % 1000u;
+}
+
+static void static_seed_mark_result(uint32_t addr, uint16_t p2p_port, int connected)
+{
+    int64_t now = plat_uptime_ms();
+
+    plat_mutex_lock(&seed_lock);
+    for (int i = 0; i < P2P_STATIC_SEED_MAX; i++) {
+        p2p_static_seed_t *seed = &static_seeds[i];
+
+        if (!seed->in_use || seed->addr != addr || seed->p2p_port != p2p_port) {
+            continue;
+        }
+        if (connected) {
+            seed->retry_delay_ms = P2P_CONNECT_MS;
+        } else if (seed->retry_delay_ms < P2P_CONNECT_MS) {
+            seed->retry_delay_ms = P2P_CONNECT_MS;
+        } else {
+            uint32_t next = seed->retry_delay_ms * 2u;
+
+            seed->retry_delay_ms = next > P2P_CONNECT_BACKOFF_MAX_MS ?
+                                   P2P_CONNECT_BACKOFF_MAX_MS : next;
+        }
+        seed->next_attempt_ms = now + seed->retry_delay_ms +
+                                seed_retry_jitter_ms(addr, p2p_port);
+        break;
+    }
+    plat_mutex_unlock(&seed_lock);
 }
 
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
@@ -1179,6 +1219,7 @@ static void connect_loop(void *p1, void *p2, void *p3)
         {
             p2p_static_seed_t seeds[P2P_STATIC_SEED_MAX];
             int seed_count = 0;
+            int64_t now = plat_uptime_ms();
 
             plat_mutex_lock(&seed_lock);
             for (int i = 0; i < P2P_STATIC_SEED_MAX; i++) {
@@ -1189,7 +1230,18 @@ static void connect_loop(void *p1, void *p2, void *p3)
             plat_mutex_unlock(&seed_lock);
 
             for (int i = 0; i < seed_count; i++) {
-                connected += connect_to_addr(seeds[i].addr, seeds[i].p2p_port);
+                int ok;
+
+                if (addr_conn_exists(seeds[i].addr, seeds[i].p2p_port)) {
+                    static_seed_mark_result(seeds[i].addr, seeds[i].p2p_port, 1);
+                    continue;
+                }
+                if (seeds[i].next_attempt_ms > now) {
+                    continue;
+                }
+                ok = connect_to_addr(seeds[i].addr, seeds[i].p2p_port);
+                static_seed_mark_result(seeds[i].addr, seeds[i].p2p_port, ok);
+                connected += ok;
 #if !defined(CONFIG_MQTT_P2P_STATIC_SEEDS_ONLY)
                 if (budget > 0 && connected >= budget) {
                     break;
