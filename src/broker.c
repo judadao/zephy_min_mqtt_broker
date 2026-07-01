@@ -29,6 +29,26 @@ static int extra_listener_started;
 
 #define MESH_INGRESS_MAX_CLIENTS 2
 #define MESH_INGRESS_SUBS_PER_CLIENT 4
+#define MESH_INGRESS_INFLIGHT_MAX 4
+#define MESH_INGRESS_QOS2_IN_MAX 4
+#define MESH_INGRESS_RETRY_MS 5000
+
+typedef struct {
+    uint16_t packet_id;
+    uint8_t buf[MQTT_MAX_PACKET_SIZE + 8];
+    uint16_t len;
+    int64_t sent_at_ms;
+    uint8_t in_use;
+    uint8_t qos;
+    uint8_t waiting_pubcomp;
+} mesh_ingress_inflight_t;
+
+typedef struct {
+    uint16_t packet_id;
+    mqtt_publish_t pub;
+    uint8_t in_use;
+    uint8_t published;
+} mesh_ingress_qos2_in_t;
 
 typedef struct {
     int fd;
@@ -37,6 +57,8 @@ typedef struct {
     char subs[MESH_INGRESS_SUBS_PER_CLIENT][MQTT_TOPIC_MAX];
     uint8_t qos[MESH_INGRESS_SUBS_PER_CLIENT];
     uint8_t sub_in_use[MESH_INGRESS_SUBS_PER_CLIENT];
+    mesh_ingress_inflight_t inflight[MESH_INGRESS_INFLIGHT_MAX];
+    mesh_ingress_qos2_in_t qos2_in[MESH_INGRESS_QOS2_IN_MAX];
 } mesh_ingress_client_t;
 
 static mesh_ingress_client_t mesh_clients[MESH_INGRESS_MAX_CLIENTS];
@@ -443,6 +465,130 @@ static int mesh_client_unsubscribe(mesh_ingress_client_t *c, const char *filter)
     return removed ? 0 : -1;
 }
 
+static void mesh_publish_from_ingress(const mqtt_publish_t *pub)
+{
+    if (!pub) {
+        return;
+    }
+#if defined(CONFIG_MQTT_P2P_DYNAMIC)
+    p2p_publish_from_local(pub);
+#endif
+    broker_mesh_ingress_publish_remote(pub);
+    broker_notify_activity();
+}
+
+static int mesh_qos2_find(mesh_ingress_client_t *c, uint16_t packet_id)
+{
+    for (int i = 0; i < MESH_INGRESS_QOS2_IN_MAX; i++) {
+        if (c->qos2_in[i].in_use && c->qos2_in[i].packet_id == packet_id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int mesh_qos2_alloc(mesh_ingress_client_t *c)
+{
+    for (int i = 0; i < MESH_INGRESS_QOS2_IN_MAX; i++) {
+        if (!c->qos2_in[i].in_use) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static void mesh_inflight_store(mesh_ingress_client_t *c, uint16_t packet_id,
+                                const uint8_t *buf, uint16_t len, uint8_t qos)
+{
+    if (!c || packet_id == 0 || !buf || len == 0) {
+        return;
+    }
+    for (int i = 0; i < MESH_INGRESS_INFLIGHT_MAX; i++) {
+        if (!c->inflight[i].in_use) {
+            c->inflight[i].packet_id = packet_id;
+            c->inflight[i].len = len;
+            c->inflight[i].sent_at_ms = plat_uptime_ms();
+            c->inflight[i].in_use = 1;
+            c->inflight[i].qos = qos;
+            c->inflight[i].waiting_pubcomp = 0;
+            memcpy(c->inflight[i].buf, buf, len);
+            return;
+        }
+    }
+    LOG_WRN("mesh ingress inflight full, dropping QoS-%u id=%u", qos, packet_id);
+}
+
+static void mesh_inflight_ack(mesh_ingress_client_t *c, uint16_t packet_id)
+{
+    for (int i = 0; i < MESH_INGRESS_INFLIGHT_MAX; i++) {
+        if (c->inflight[i].in_use && c->inflight[i].packet_id == packet_id) {
+            c->inflight[i].in_use = 0;
+            return;
+        }
+    }
+}
+
+static void mesh_inflight_pubrec(mesh_ingress_client_t *c, uint16_t packet_id)
+{
+    uint8_t rel[4];
+    int len;
+
+    for (int i = 0; i < MESH_INGRESS_INFLIGHT_MAX; i++) {
+        if (!c->inflight[i].in_use ||
+            c->inflight[i].packet_id != packet_id ||
+            c->inflight[i].qos != 2 ||
+            c->inflight[i].waiting_pubcomp) {
+            continue;
+        }
+        len = packet_build_pubrel(packet_id, rel, sizeof(rel));
+        if (len > 0 && broker_send_all(c->fd, rel, (size_t)len) == 0) {
+            c->inflight[i].waiting_pubcomp = 1;
+            c->inflight[i].sent_at_ms = plat_uptime_ms();
+            memcpy(c->inflight[i].buf, rel, (size_t)len);
+            c->inflight[i].len = (uint16_t)len;
+        }
+        return;
+    }
+}
+
+static void mesh_inflight_retry(mesh_ingress_client_t *c)
+{
+    int64_t now = plat_uptime_ms();
+
+    if (!c || !c->in_use) {
+        return;
+    }
+    for (int i = 0; i < MESH_INGRESS_INFLIGHT_MAX; i++) {
+        if (!c->inflight[i].in_use ||
+            now - c->inflight[i].sent_at_ms < MESH_INGRESS_RETRY_MS) {
+            continue;
+        }
+        if (!(c->inflight[i].qos == 2 && c->inflight[i].waiting_pubcomp)) {
+            c->inflight[i].buf[0] |= 0x08;
+        }
+        c->inflight[i].sent_at_ms = now;
+        if (broker_send_all(c->fd, c->inflight[i].buf, c->inflight[i].len) < 0) {
+            mesh_client_close(c);
+            return;
+        }
+    }
+}
+
+static void mesh_ingress_retry_all(void)
+{
+    for (int i = 0; i < MESH_INGRESS_MAX_CLIENTS; i++) {
+        mesh_inflight_retry(&mesh_clients[i]);
+    }
+}
+
+static uint16_t packet_id_from_ack(const mqtt_packet_t *pkt)
+{
+    if (!pkt || pkt->buf_len < 2) {
+        return 0;
+    }
+    return (uint16_t)((pkt->buf[0] << 8) | pkt->buf[1]);
+}
+
 static void mesh_ingress_accept_one(int fd, uint16_t port)
 {
     struct sockaddr_in peer;
@@ -502,11 +648,30 @@ static void mesh_ingress_handle_client(mesh_ingress_client_t *client)
         mqtt_publish_t pub;
 
         if (packet_parse_publish(&pkt, &pub) == 0) {
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-            p2p_publish_from_local(&pub);
-#endif
-            broker_mesh_ingress_publish_remote(&pub);
-            broker_notify_activity();
+            if (pub.qos == 2) {
+                int slot = mesh_qos2_find(client, pub.packet_id);
+
+                if (slot < 0) {
+                    slot = mesh_qos2_alloc(client);
+                    if (slot >= 0) {
+                        client->qos2_in[slot].packet_id = pub.packet_id;
+                        client->qos2_in[slot].pub = pub;
+                        client->qos2_in[slot].published = 0;
+                        client->qos2_in[slot].in_use = 1;
+                    } else {
+                        LOG_WRN("mesh ingress QoS2-in table full, closing id=%u",
+                                pub.packet_id);
+                        mesh_client_close(client);
+                        return;
+                    }
+                }
+                len = packet_build_pubrec(pub.packet_id, out, sizeof(out));
+                if (len > 0) {
+                    (void)broker_send_all(client->fd, out, (size_t)len);
+                }
+            } else {
+                mesh_publish_from_ingress(&pub);
+            }
             if (pub.qos == 1) {
                 len = packet_build_puback(pub.packet_id, out, sizeof(out));
                 if (len > 0) {
@@ -544,6 +709,27 @@ static void mesh_ingress_handle_client(mesh_ingress_client_t *client)
         if (len > 0) {
             (void)broker_send_all(client->fd, out, (size_t)len);
         }
+    } else if (type == MQTT_PUBACK) {
+        mesh_inflight_ack(client, packet_id_from_ack(&pkt));
+    } else if (type == MQTT_PUBREC) {
+        mesh_inflight_pubrec(client, packet_id_from_ack(&pkt));
+    } else if (type == MQTT_PUBREL) {
+        uint16_t packet_id = packet_id_from_ack(&pkt);
+        int slot = mesh_qos2_find(client, packet_id);
+
+        if (slot >= 0) {
+            if (!client->qos2_in[slot].published) {
+                mesh_publish_from_ingress(&client->qos2_in[slot].pub);
+                client->qos2_in[slot].published = 1;
+            }
+            client->qos2_in[slot].in_use = 0;
+        }
+        len = packet_build_pubcomp(packet_id, out, sizeof(out));
+        if (len > 0) {
+            (void)broker_send_all(client->fd, out, (size_t)len);
+        }
+    } else if (type == MQTT_PUBCOMP) {
+        mesh_inflight_ack(client, packet_id_from_ack(&pkt));
     } else if (type == MQTT_PINGREQ) {
         len = packet_build_pingresp(out, sizeof(out));
         if (len > 0) {
@@ -589,6 +775,11 @@ void broker_mesh_ingress_publish_remote(const mqtt_publish_t *pub)
             if (len <= 0 ||
                 broker_send_all(client->fd, out, (size_t)len) < 0) {
                 mesh_client_close(client);
+                break;
+            }
+            if (deliver.qos > 0) {
+                mesh_inflight_store(client, deliver.packet_id, out,
+                                    (uint16_t)len, deliver.qos);
             }
             break;
         }
@@ -679,18 +870,22 @@ void broker_run(void)
             { .fd = extra_listen_fd, .events = ZSOCK_POLLIN },
         };
         int nfds = 2 + mesh_ingress_zpollfds(fds, 2 + MESH_INGRESS_MAX_CLIENTS, 2);
-        int rc = zsock_poll(fds, nfds, -1);
+        int rc = zsock_poll(fds, nfds, 1000);
 #else
         struct pollfd fds[2 + MESH_INGRESS_MAX_CLIENTS] = {
             { .fd = listen_fd, .events = POLLIN },
             { .fd = extra_listen_fd, .events = POLLIN },
         };
         int nfds = 2 + mesh_ingress_pollfds(fds, 2 + MESH_INGRESS_MAX_CLIENTS, 2);
-        int rc = poll(fds, nfds, -1);
+        int rc = poll(fds, nfds, 1000);
 #endif
 
         if (rc < 0) {
             LOG_WRN("poll: %d", errno);
+            continue;
+        }
+        if (rc == 0) {
+            mesh_ingress_retry_all();
             continue;
         }
         if (listen_fd >= 0 && fds[0].revents) {
@@ -704,5 +899,6 @@ void broker_run(void)
                 mesh_ingress_handle_ready_fd(fds[i].fd);
             }
         }
+        mesh_ingress_retry_all();
     }
 }

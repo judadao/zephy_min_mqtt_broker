@@ -66,7 +66,7 @@ static const char DASHBOARD[] =
 "<div class=\"row\">\n"
 "  <input id=\"p-topic\" placeholder=\"topic\" style=\"width:180px\">\n"
 "  <input id=\"p-payload\" placeholder=\"payload\" style=\"width:240px\">\n"
-"  <select id=\"p-qos\"><option value=\"0\">QoS 0</option><option value=\"1\">QoS 1</option></select>\n"
+"  <select id=\"p-qos\"><option value=\"0\">QoS 0</option><option value=\"1\">QoS 1</option><option value=\"2\">QoS 2</option></select>\n"
 "  <button onclick=\"pub()\">Publish</button>\n"
 "  <span id=\"msg\"></span>\n"
 "</div>\n"
@@ -258,7 +258,7 @@ static void handle_publish_api(int fd, const char *body)
     }
     json_str(body, "payload", payload, sizeof(payload));
     int qos = json_int(body, "qos");
-    if (qos < 0 || qos > 1) qos = 0;
+    if (qos < 0 || qos > 2) qos = 0;
 
     mqtt_publish_t pub = {0};
     strncpy(pub.topic, topic, sizeof(pub.topic) - 1);
