@@ -257,6 +257,30 @@ int broker_init(void)
     return 0;
 }
 
+int broker_stop_mqtt_listener(void)
+{
+    if (listen_fd < 0) {
+        return 0;
+    }
+    plat_close(listen_fd);
+    listen_fd = -1;
+    LOG_INF("MQTT listener stopped port=%u", listen_port);
+    return 0;
+}
+
+int broker_start_mqtt_listener(void)
+{
+    if (listen_fd >= 0) {
+        return 0;
+    }
+    listen_fd = open_listener(listen_port);
+    if (listen_fd < 0) {
+        return listen_fd;
+    }
+    LOG_INF("MQTT listener restarted port=%u", listen_port);
+    return 0;
+}
+
 static void broker_accept_one(int fd, uint16_t port)
 {
     struct sockaddr_in peer;
@@ -481,6 +505,7 @@ static void mesh_ingress_handle_client(mesh_ingress_client_t *client)
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
             p2p_publish_from_local(&pub);
 #endif
+            broker_mesh_ingress_publish_remote(&pub);
             broker_notify_activity();
             if (pub.qos == 1) {
                 len = packet_build_puback(pub.packet_id, out, sizeof(out));
@@ -635,7 +660,15 @@ void broker_run(void)
 {
     if (!extra_listener_started) {
         while (1) {
-            broker_accept_one(listen_fd, listen_port);
+            if (listen_fd >= 0) {
+                broker_accept_one(listen_fd, listen_port);
+            } else {
+#ifdef __ZEPHYR__
+                k_sleep(K_MSEC(100));
+#else
+                (void)poll(NULL, 0, 100);
+#endif
+            }
         }
     }
 
@@ -660,7 +693,7 @@ void broker_run(void)
             LOG_WRN("poll: %d", errno);
             continue;
         }
-        if (fds[0].revents) {
+        if (listen_fd >= 0 && fds[0].revents) {
             broker_accept_one(listen_fd, listen_port);
         }
         if (fds[1].revents) {

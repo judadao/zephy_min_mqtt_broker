@@ -53,6 +53,8 @@ void broker_set_activity_callback(broker_activity_cb_t cb, void *ctx);
 void broker_notify_activity(void);
 void broker_mesh_ingress_publish_remote(const mqtt_publish_t *pub);
 int  broker_init(void);
+int  broker_stop_mqtt_listener(void);
+int  broker_start_mqtt_listener(void);
 int  broker_start_mesh_ingress_listener(uint16_t port);
 void broker_run(void);
 
