@@ -151,25 +151,31 @@ if [ "$STATIC_SEEDS_ONLY" = "1" ]; then
     fi
 fi
 
-echo "[test] B subscribes, A publishes..."
-"$OUT/mqtt_cli" sub -p "$NODE_B_MQTT" -t "p2p/test" > "$OUT/sub.out" 2>"$OUT/sub.err" &
-SUB_PID=$!
-sleep 1
-"$OUT/mqtt_cli" pub -p "$NODE_A_MQTT" -t "p2p/test" -m "dynamic-ok" >/dev/null 2>&1
-sleep 1
-kill "$SUB_PID" 2>/dev/null
-wait "$SUB_PID" 2>/dev/null || true
-SUB_PID=0
+for qos in 0 1 2; do
+    topic="p2p/test/qos$qos"
+    msg="dynamic-qos$qos-ok"
+    echo "[test] B subscribes QoS$qos, A publishes QoS$qos..."
+    "$OUT/mqtt_cli" sub -p "$NODE_B_MQTT" -t "$topic" -q "$qos" \
+        > "$OUT/sub-q$qos.out" 2>"$OUT/sub-q$qos.err" &
+    SUB_PID=$!
+    sleep 1
+    "$OUT/mqtt_cli" pub -p "$NODE_A_MQTT" -t "$topic" -m "$msg" -q "$qos" \
+        >/dev/null 2>&1
+    sleep 1
+    kill "$SUB_PID" 2>/dev/null
+    wait "$SUB_PID" 2>/dev/null || true
+    SUB_PID=0
 
-if grep -q "p2p/test dynamic-ok" "$OUT/sub.out"; then
-    _ok "remote PUBLISH delivered to subscriber on other broker"
-else
-    _fail "remote PUBLISH delivered to subscriber on other broker"
-    echo "[debug] subscriber output:" >&2
-    cat "$OUT/sub.out" >&2
-    echo "[debug] broker logs:" >&2
-    cat "$OUT/a.log" "$OUT/b.log" >&2
-fi
+    if grep -q "$topic $msg" "$OUT/sub-q$qos.out"; then
+        _ok "remote QoS$qos PUBLISH delivered to subscriber on other broker"
+    else
+        _fail "remote QoS$qos PUBLISH delivered to subscriber on other broker"
+        echo "[debug] subscriber output:" >&2
+        cat "$OUT/sub-q$qos.out" >&2
+        echo "[debug] broker logs:" >&2
+        cat "$OUT/a.log" "$OUT/b.log" >&2
+    fi
+done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

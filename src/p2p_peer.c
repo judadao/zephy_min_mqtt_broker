@@ -54,8 +54,21 @@ typedef struct {
     uint8_t  retain;
 } __attribute__((packed)) p2p_publish_wire_hdr_t;
 
+#ifdef __ZEPHYR__
+#define P2P_PENDING_QOS_MAX 4
+#else
+#define P2P_PENDING_QOS_MAX 8
+#endif
+
 #define P2P_PUBLISH_FRAME_MAX \
     (sizeof(p2p_publish_wire_hdr_t) + MQTT_TOPIC_MAX + MQTT_PAYLOAD_MAX)
+
+typedef struct {
+    p2p_publish_msg_t msg;
+    uint8_t frame[P2P_PUBLISH_FRAME_MAX];
+    uint16_t frame_len;
+    uint8_t in_use;
+} p2p_pending_publish_t;
 
 static p2p_conn_t conns[P2P_PEER_MAX];
 static seen_msg_t seen[P2P_SEEN_MAX];
@@ -71,6 +84,8 @@ PLAT_MUTEX_DEFINE(seed_lock);
 PLAT_MUTEX_DEFINE(local_publish_lock);
 static p2p_publish_msg_t local_publish_msg;
 static uint8_t local_publish_frame[P2P_PUBLISH_FRAME_MAX];
+static p2p_pending_publish_t pending_qos[P2P_PENDING_QOS_MAX];
+PLAT_MUTEX_DEFINE(pending_qos_lock);
 static uint8_t peer_rx_bufs[P2P_PEER_MAX][P2P_PUBLISH_FRAME_MAX];
 static p2p_publish_msg_t peer_publish_msgs[P2P_PEER_MAX];
 static mqtt_publish_t peer_mqtt_pubs[P2P_PEER_MAX];
@@ -98,6 +113,7 @@ static int id_equal(const uint8_t *a, const uint8_t *b)
 static int conn_exists(const uint8_t node_id[P2P_NODE_ID_LEN], const p2p_conn_t *except);
 static void send_sub_to_leaves(const p2p_sub_msg_t *msg, uint8_t type,
                                const uint8_t *exclude_node_id);
+static void flush_pending_qos_for_filter(const char *filter);
 
 static int conn_slot(const p2p_conn_t *c)
 {
@@ -186,6 +202,38 @@ static int copy_cstr_bounded(char *dst, size_t dst_cap, const char *src)
     memcpy(dst, src, len);
     dst[len] = '\0';
     return 1;
+}
+
+static int topic_match_local(const char *filter, const char *topic)
+{
+    if (!filter || !topic) {
+        return 0;
+    }
+    while (*filter && *topic) {
+        if (*filter == '#') {
+            return (*(filter + 1) == '\0');
+        }
+        if (*filter == '+') {
+            while (*topic && *topic != '/') {
+                topic++;
+            }
+            filter++;
+            if (*filter == '/' && *topic == '/') {
+                filter++;
+                topic++;
+            }
+            continue;
+        }
+        if (*filter != *topic) {
+            return 0;
+        }
+        filter++;
+        topic++;
+    }
+    if (*filter == '/' && *(filter + 1) == '#' && *(filter + 2) == '\0') {
+        return 1;
+    }
+    return *filter == '\0' && *topic == '\0';
 }
 
 void p2p_static_seed_clear(void)
@@ -347,17 +395,24 @@ static int send_prebuilt_publish_to_node_unlocked(const uint8_t node_id[P2P_NODE
 static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
                                                  const uint8_t *frame,
                                                  uint16_t frame_len,
-                                                 const uint8_t *exclude_node_id)
+                                                 const uint8_t *exclude_node_id,
+                                                 int *route_count_out)
 {
     uint8_t next_hops[P2P_PEER_MAX][P2P_NODE_ID_LEN];
     int next_hop_count;
     int sent = 0;
 
+    if (route_count_out) {
+        *route_count_out = 0;
+    }
     p2p_election_record_publish();
     next_hop_count = p2p_router_find_next_hops(msg->topic, exclude_node_id,
                                                next_hops, P2P_PEER_MAX);
     if (next_hop_count <= 0) {
         return 0;
+    }
+    if (route_count_out) {
+        *route_count_out = next_hop_count;
     }
 
     for (int i = 0; i < next_hop_count; i++) {
@@ -367,6 +422,74 @@ static int p2p_send_publish_from_router_prebuilt(const p2p_publish_msg_t *msg,
     LOG_INF("P2P send publish topic=%s peers=%d", msg->topic, sent);
 #endif
     return sent;
+}
+
+static void pending_qos_store(const p2p_publish_msg_t *msg,
+                              const uint8_t *frame,
+                              uint16_t frame_len)
+{
+    int slot = -1;
+
+    if (!msg || !frame || frame_len == 0 || msg->qos == 0) {
+        return;
+    }
+
+    plat_mutex_lock(&pending_qos_lock);
+    for (int i = 0; i < P2P_PENDING_QOS_MAX; i++) {
+        if (pending_qos[i].in_use &&
+            pending_qos[i].msg.seq == msg->seq &&
+            id_equal(pending_qos[i].msg.origin_id, msg->origin_id)) {
+            plat_mutex_unlock(&pending_qos_lock);
+            return;
+        }
+        if (slot < 0 && !pending_qos[i].in_use) {
+            slot = i;
+        }
+    }
+    if (slot < 0) {
+        slot = 0;
+        LOG_WRN("P2P QoS pending full, replacing oldest seq=%u",
+                pending_qos[slot].msg.seq);
+    }
+    pending_qos[slot].msg = *msg;
+    memcpy(pending_qos[slot].frame, frame, frame_len);
+    pending_qos[slot].frame_len = frame_len;
+    pending_qos[slot].in_use = 1;
+    plat_mutex_unlock(&pending_qos_lock);
+}
+
+static void flush_pending_qos_for_filter(const char *filter)
+{
+    p2p_pending_publish_t batch[P2P_PENDING_QOS_MAX];
+    uint8_t batch_index[P2P_PENDING_QOS_MAX];
+    int count = 0;
+
+    plat_mutex_lock(&pending_qos_lock);
+    for (int i = 0; i < P2P_PENDING_QOS_MAX; i++) {
+        if (!pending_qos[i].in_use) {
+            continue;
+        }
+        if (filter && !topic_match_local(filter, pending_qos[i].msg.topic)) {
+            continue;
+        }
+        batch[count] = pending_qos[i];
+        batch_index[count] = (uint8_t)i;
+        count++;
+    }
+    plat_mutex_unlock(&pending_qos_lock);
+
+    for (int i = 0; i < count; i++) {
+        int routes = 0;
+        int sent = p2p_send_publish_from_router_prebuilt(&batch[i].msg,
+                                                         batch[i].frame,
+                                                         batch[i].frame_len,
+                                                         NULL, &routes);
+        if (routes > 0 && sent > 0) {
+            plat_mutex_lock(&pending_qos_lock);
+            pending_qos[batch_index[i]].in_use = 0;
+            plat_mutex_unlock(&pending_qos_lock);
+        }
+    }
 }
 
 /*
@@ -813,12 +936,14 @@ static void peer_loop(void *p1, void *p2, void *p3)
     p2p_election_update_peer(ann, c->addr);
     LOG_INF("P2P peer connected role=%s", c->role == P2P_ROLE_ROUTER ? "ROUTER" : "LEAF");
     advertise_local_subs_to(c);
+    flush_pending_qos_for_filter(NULL);
 
     while (recv_frame(c->fd, &type, buf, P2P_PUBLISH_FRAME_MAX, &len) == 0) {
         if (type == P2P_SUB_NOTIFY && len == sizeof(p2p_sub_msg_t)) {
             p2p_sub_msg_t *sub = (p2p_sub_msg_t *)buf;
             int changed = p2p_router_remote_subscribe(sub->owner_id, sub->filter,
                                                       sub->qos, c->node_id);
+            flush_pending_qos_for_filter(sub->filter);
             if (changed && p2p_election_role() == P2P_ROLE_ROUTER) {
                 p2p_send_sub_to_routers(sub, P2P_SUB_NOTIFY, c->node_id);
                 /* Also inform connected leaves so they build route tables
@@ -1274,7 +1399,8 @@ void p2p_send_publish_from_router(const p2p_publish_msg_t *msg,
     if (build_publish_frame(msg, frame, sizeof(frame), &frame_len) < 0) {
         return;
     }
-    (void)p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, exclude_node_id);
+    (void)p2p_send_publish_from_router_prebuilt(msg, frame, frame_len,
+                                                exclude_node_id, NULL);
 }
 
 void p2p_publish_from_local(const mqtt_publish_t *pub)
@@ -1284,6 +1410,8 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     uint16_t frame_len = 0;
     uint8_t owner_id[P2P_NODE_ID_LEN];
     uint8_t self_id[P2P_NODE_ID_LEN];
+    int routes = 0;
+    int sent = 0;
 
     plat_mutex_lock(&local_publish_lock);
     memset(msg, 0, sizeof(*msg));
@@ -1308,18 +1436,26 @@ void p2p_publish_from_local(const mqtt_publish_t *pub)
     }
     if (!p2p_shard_owner_for_topic(pub->topic, owner_id) ||
         id_cmp(owner_id, self_id) == 0) {
-        if (!p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, NULL)) {
+        sent = p2p_send_publish_from_router_prebuilt(msg, frame, frame_len,
+                                                     NULL, &routes);
+        if (!sent) {
             flood_publish_to_connected_peers(frame, frame_len, NULL);
         }
     } else {
-        if (!send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len)) {
+        sent = send_prebuilt_publish_to_node_unlocked(owner_id, frame, frame_len);
+        if (!sent) {
             /* Direct path to shard owner unavailable; try route table. */
-            if (!p2p_send_publish_from_router_prebuilt(msg, frame, frame_len, NULL)) {
+            sent = p2p_send_publish_from_router_prebuilt(msg, frame, frame_len,
+                                                         NULL, &routes);
+            if (!sent) {
                 /* No routes (leaf with empty table): flood to all connected peers.
                  * They will route via their own subscription tables. */
                 flood_publish_to_connected_peers(frame, frame_len, NULL);
             }
         }
+    }
+    if (pub->qos > 0 && routes > 0 && sent == 0) {
+        pending_qos_store(msg, frame, frame_len);
     }
     plat_mutex_unlock(&local_publish_lock);
 }
