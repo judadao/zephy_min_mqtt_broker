@@ -1,20 +1,41 @@
 #include <string.h>
+#ifndef __ZEPHYR__
+#include <stdlib.h>
+#endif
 #include "platform/platform.h"
 #include "session.h"
 #include "client.h"
 
 LOG_MODULE_REGISTER(mqtt_session, LOG_LEVEL_DBG);
 
-static session_t    sessions[SESSION_MAX];
+static session_t *sessions;
 PLAT_MUTEX_DEFINE(session_lock);
+
+static session_t *session_pool_ensure(void)
+{
+    if (sessions) {
+        return sessions;
+    }
+#ifdef __ZEPHYR__
+    sessions = k_calloc(SESSION_MAX, sizeof(session_t));
+#else
+    sessions = calloc(SESSION_MAX, sizeof(session_t));
+#endif
+    return sessions;
+}
 
 void session_init(void)
 {
-    memset(sessions, 0, sizeof(sessions));
+    if (sessions) {
+        memset(sessions, 0, SESSION_MAX * sizeof(session_t));
+    }
 }
 
 session_t *session_find(const char *client_id)
 {
+    if (!sessions) {
+        return NULL;
+    }
     plat_mutex_lock(&session_lock);
     for (int i = 0; i < SESSION_MAX; i++) {
         if (sessions[i].in_use &&
@@ -29,6 +50,9 @@ session_t *session_find(const char *client_id)
 
 session_t *session_create(const char *client_id)
 {
+    if (!session_pool_ensure()) {
+        return NULL;
+    }
     plat_mutex_lock(&session_lock);
     for (int i = 0; i < SESSION_MAX; i++) {
         if (!sessions[i].in_use) {
@@ -51,6 +75,9 @@ session_t *session_find_or_create(const char *client_id, uint8_t *was_found)
 
     if (was_found) {
         *was_found = 0;
+    }
+    if (!session_pool_ensure()) {
+        return NULL;
     }
     plat_mutex_lock(&session_lock);
     for (int i = 0; i < SESSION_MAX; i++) {
@@ -80,6 +107,9 @@ session_t *session_find_or_create(const char *client_id, uint8_t *was_found)
 
 void session_delete(const char *client_id)
 {
+    if (!sessions) {
+        return;
+    }
     plat_mutex_lock(&session_lock);
     for (int i = 0; i < SESSION_MAX; i++) {
         if (sessions[i].in_use &&
@@ -159,6 +189,9 @@ int session_offline_publish(const mqtt_publish_t *pub,
 {
     if (pub->qos == 0) {
         return 0; /* QoS 0 is fire-and-forget; never queue for offline clients */
+    }
+    if (!sessions) {
+        return 0;
     }
     int count = 0;
     plat_mutex_lock(&session_lock);

@@ -27,6 +27,14 @@ config MQTT_ADMISSION_MAX_CLIENTS
 	  MQTT_MAX_CLIENTS to reserve resources for bridge forwarding and make
 	  clients fall back to another broker.
 
+config MQTT_CLIENT_STACK_SIZE
+	int "Per MQTT client thread stack size"
+	default 8192
+	range 3072 16384
+	help
+	  Stack reserved for each admitted MQTT client thread on Zephyr.
+	  Lower this on constrained products after validating pub/sub workloads.
+
 config MQTT_STANDALONE
 	bool "Include built-in main() and WiFi init"
 	depends on WIFI

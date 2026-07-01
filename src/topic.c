@@ -1,4 +1,7 @@
 #include <string.h>
+#ifndef __ZEPHYR__
+#include <stdlib.h>
+#endif
 #include "platform/platform.h"
 #include "broker.h"
 #include "topic.h"
@@ -42,10 +45,23 @@ typedef struct {
 } retain_entry_t;
 
 static sub_entry_t    subs[TOPIC_MAX_SUBS];
-static retain_entry_t retains[TOPIC_RETAIN_MAX];
+static retain_entry_t *retains;
 static int exact_heads[TOPIC_MAX_SUBS];
 static int wildcard_head;
 PLAT_MUTEX_DEFINE(topic_lock);
+
+static retain_entry_t *retain_store_ensure(void)
+{
+    if (retains) {
+        return retains;
+    }
+#ifdef __ZEPHYR__
+    retains = k_calloc(TOPIC_RETAIN_MAX, sizeof(retain_entry_t));
+#else
+    retains = calloc(TOPIC_RETAIN_MAX, sizeof(retain_entry_t));
+#endif
+    return retains;
+}
 
 static uint32_t topic_hash(const char *s)
 {
@@ -161,6 +177,10 @@ int topic_get_retain_snapshots(retain_snapshot_t *out, int max)
 {
     plat_mutex_lock(&topic_lock);
     int n = 0;
+    if (!retains) {
+        plat_mutex_unlock(&topic_lock);
+        return 0;
+    }
     for (int i = 0; i < TOPIC_RETAIN_MAX && n < max; i++) {
         if (retains[i].in_use) {
             strncpy(out[n].topic, retains[i].topic, MQTT_TOPIC_MAX - 1);
@@ -176,7 +196,9 @@ int topic_get_retain_snapshots(retain_snapshot_t *out, int max)
 void topic_init(void)
 {
     memset(subs,    0, sizeof(subs));
-    memset(retains, 0, sizeof(retains));
+    if (retains) {
+        memset(retains, 0, TOPIC_RETAIN_MAX * sizeof(retain_entry_t));
+    }
     for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
         exact_heads[i] = -1;
     }
@@ -608,6 +630,11 @@ static int topic_publish_internal(const mqtt_publish_t *pub, int propagate)
 
     if (pub->retain) {
         int found = -1;
+        if (!retain_store_ensure()) {
+            LOG_WRN("retain store allocation failed");
+            plat_mutex_unlock(&topic_lock);
+            return -1;
+        }
         for (int i = 0; i < TOPIC_RETAIN_MAX; i++) {
             if (retains[i].in_use &&
                 strcmp(retains[i].topic, pub->topic) == 0) {
@@ -705,6 +732,9 @@ void topic_deliver_retained(struct client *c, const char *filter, uint8_t qos)
     } pkts[TOPIC_RETAIN_MAX];
     int npkts = 0;
 
+    if (!retains) {
+        return;
+    }
     plat_mutex_lock(&topic_lock);
     for (int j = 0; j < TOPIC_RETAIN_MAX; j++) {
         if (!retains[j].in_use || !topic_match(filter, retains[j].topic)) {

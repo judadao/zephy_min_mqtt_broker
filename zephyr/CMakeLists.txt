@@ -2,6 +2,7 @@ if(CONFIG_MQTT_MIN_BROKER)
   zephyr_library_named(mqtt_min_broker)
   zephyr_library_compile_definitions(MQTT_MAX_CLIENTS=${CONFIG_MQTT_MAX_CLIENTS})
   zephyr_library_compile_definitions(MQTT_ADMISSION_MAX_CLIENTS=${CONFIG_MQTT_ADMISSION_MAX_CLIENTS})
+  zephyr_library_compile_definitions(CLIENT_STACK_SIZE=${CONFIG_MQTT_CLIENT_STACK_SIZE})
   if(CONFIG_MQTT_P2P_DYNAMIC)
     zephyr_library_compile_definitions(
       P2P_PEER_MAX=${CONFIG_MQTT_P2P_PEER_MAX}

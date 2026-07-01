@@ -714,6 +714,7 @@ static void handle_publish(p2p_conn_t *c, const p2p_publish_msg_t *msg)
     LOG_INF("P2P recv publish topic=%s from peer", pub->topic);
 #endif
     topic_publish_remote(pub);
+    broker_mesh_ingress_publish_remote(pub);
 
     if (p2p_election_role() == P2P_ROLE_ROUTER) {
         /*

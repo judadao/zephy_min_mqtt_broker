@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "packet.h"
+
 #ifndef MQTT_BROKER_PORT
 #define MQTT_BROKER_PORT   1883
 #endif
@@ -45,10 +47,13 @@ typedef void (*broker_activity_cb_t)(void *ctx);
  * for embedders that need activity indicators and must not block.
  */
 int  broker_set_bind_host(const char *host);
+int  broker_set_listen_port(uint16_t port);
 int  broker_set_admission_limit(uint16_t max_clients);
 void broker_set_activity_callback(broker_activity_cb_t cb, void *ctx);
 void broker_notify_activity(void);
+void broker_mesh_ingress_publish_remote(const mqtt_publish_t *pub);
 int  broker_init(void);
+int  broker_start_mesh_ingress_listener(uint16_t port);
 void broker_run(void);
 
 #endif /* BROKER_H */

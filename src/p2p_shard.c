@@ -10,7 +10,11 @@ LOG_MODULE_REGISTER(mqtt_p2p_shard, LOG_LEVEL_INF);
 #endif
 
 #ifndef P2P_SHARD_OWNER_CACHE_SIZE
+#ifdef __ZEPHYR__
+#define P2P_SHARD_OWNER_CACHE_SIZE 32
+#else
 #define P2P_SHARD_OWNER_CACHE_SIZE 256
+#endif
 #endif
 
 typedef struct {
