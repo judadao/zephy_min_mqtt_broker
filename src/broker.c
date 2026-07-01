@@ -62,6 +62,12 @@ static int mesh_filter_refcount(const char *filter)
     }
     return count;
 }
+
+static int mesh_filter_can_withdraw(const char *filter)
+{
+    return mesh_filter_refcount(filter) == 0 &&
+           topic_filter_subscriber_count(filter) == 0;
+}
 #endif
 
 int broker_set_bind_host(const char *host)
@@ -351,7 +357,7 @@ static void mesh_client_close(mesh_ingress_client_t *c)
         strncpy(filter, c->subs[i], sizeof(filter) - 1);
         filter[sizeof(filter) - 1] = '\0';
         c->sub_in_use[i] = 0;
-        if (mesh_filter_refcount(filter) == 0) {
+        if (mesh_filter_can_withdraw(filter)) {
             p2p_local_unsubscribe(filter);
         }
     }
@@ -365,10 +371,6 @@ static int mesh_client_subscribe(mesh_ingress_client_t *c, const char *filter,
                                  uint8_t qos)
 {
     int free_slot = -1;
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    int old_refs;
-#endif
-
     if (!c || !filter || filter[0] == '\0') {
         return -1;
     }
@@ -387,16 +389,11 @@ static int mesh_client_subscribe(mesh_ingress_client_t *c, const char *filter,
     if (free_slot < 0) {
         return -1;
     }
-#if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    old_refs = mesh_filter_refcount(filter);
-#endif
     strncpy(c->subs[free_slot], filter, MQTT_TOPIC_MAX - 1);
     c->qos[free_slot] = qos;
     c->sub_in_use[free_slot] = 1;
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    if (old_refs == 0) {
-        p2p_local_subscribe(filter, qos);
-    }
+    p2p_local_subscribe(filter, qos);
 #endif
     return 0;
 }
@@ -415,7 +412,7 @@ static int mesh_client_unsubscribe(mesh_ingress_client_t *c, const char *filter)
         }
     }
 #if defined(CONFIG_MQTT_P2P_DYNAMIC)
-    if (removed && mesh_filter_refcount(filter) == 0) {
+    if (removed && mesh_filter_can_withdraw(filter)) {
         p2p_local_unsubscribe(filter);
     }
 #endif

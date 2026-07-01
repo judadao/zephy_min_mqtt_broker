@@ -484,6 +484,24 @@ void topic_unsubscribe_all(struct client *c)
 #endif
 }
 
+int topic_filter_subscriber_count(const char *filter)
+{
+    int count = 0;
+
+    if (!filter || filter[0] == '\0') {
+        return 0;
+    }
+
+    plat_mutex_lock(&topic_lock);
+    for (int i = 0; i < TOPIC_MAX_SUBS; i++) {
+        if (subs[i].in_use && strcmp(subs[i].filter, filter) == 0) {
+            count++;
+        }
+    }
+    plat_mutex_unlock(&topic_lock);
+    return count;
+}
+
 typedef struct {
     client_t *client;
     uint8_t qos;

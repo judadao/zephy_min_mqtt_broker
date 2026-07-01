@@ -61,6 +61,7 @@ int  topic_filter_valid(const char *filter);
 int  topic_subscribe(struct client *c, const char *filter, uint8_t qos);
 int  topic_unsubscribe(struct client *c, const char *filter);
 void topic_unsubscribe_all(struct client *c);
+int  topic_filter_subscriber_count(const char *filter);
 
 /*
  * Publish into the local topic router. topic_publish() is used for local MQTT
