@@ -5,7 +5,7 @@
  *   mqtt_cli pub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]
  *                 -t TOPIC -m MSG [-q QOS] [-r]
  *   mqtt_cli sub  [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]
- *                 -t TOPIC [-q QOS]
+ *                 -t TOPIC [-q QOS] [-n COUNT]
  *   mqtt_cli status [-h HOST] [-p PORT]
  *
  * Defaults: HOST=127.0.0.1  MQTT port=1883  HTTP port=8080
@@ -314,7 +314,8 @@ static int cmd_pub(const char *host, uint16_t port,
 
 static int cmd_sub(const char *host, uint16_t port,
                    const char *client_id, const char *user, const char *pass,
-                   const char *topic, uint8_t qos, uint8_t clean_session)
+                   const char *topic, uint8_t qos, uint8_t clean_session,
+                   int message_limit)
 {
     int fd = tcp_connect(host, port);
     if (fd < 0) return 1;
@@ -378,6 +379,7 @@ static int cmd_sub(const char *host, uint16_t port,
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     int idle = 0;
 
+    int received = 0;
     while (g_running) {
         if (recv_pkt(fd, &pkt) < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -403,6 +405,7 @@ static int cmd_sub(const char *host, uint16_t port,
                     send_all(fd, buf, (size_t)len);
                     printf("%s %s\n", pub.topic, (char *)pub.payload);
                     fflush(stdout);
+                    received++;
                 } else if (pub.qos == 2) {
                     /* QoS 2: send PUBREC; print after PUBREL arrives */
                     len = packet_build_pubrec(pub.packet_id, buf, sizeof(buf));
@@ -420,9 +423,14 @@ static int cmd_sub(const char *host, uint16_t port,
                     /* Print now at QoS2 receive-time (display before PUBREL for simplicity) */
                     printf("%s %s\n", pub.topic, (char *)pub.payload);
                     fflush(stdout);
+                    received++;
                 } else {
                     printf("%s %s\n", pub.topic, (char *)pub.payload);
                     fflush(stdout);
+                    received++;
+                }
+                if (message_limit > 0 && received >= message_limit) {
+                    break;
                 }
             }
         } else if (type == MQTT_PUBREL) {
@@ -527,8 +535,9 @@ static void usage(const char *prog)
         "            -t TOPIC -m MSG [-q 0|1|2] [-r] [-s]\n"
         "\n"
         "  %s sub   [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
-        "            -t TOPIC [-q 0|1|2] [-s]\n"
+        "            -t TOPIC [-q 0|1|2] [-s] [-n COUNT]\n"
         "            -s  persistent session (clean_session=0)\n"
+        "            -n  stop after COUNT delivered messages and send DISCONNECT\n"
         "\n"
         "  %s unsub [-h HOST] [-p PORT] [-i ID] [-u USER] [-P PASS]\n"
         "            -t TOPIC [-q 0|1|2]\n"
@@ -556,12 +565,13 @@ int main(int argc, char *argv[])
     uint8_t     qos           = 0;
     uint8_t     retain        = 0;
     uint8_t     clean_session = 1; /* default: clean session */
+    int         message_limit = 0;
 
     /* shift argv past the command word so getopt sees only options */
     int    nargc = argc - 1;
     char **nargv = argv + 1;
     int    opt;
-    while ((opt = getopt(nargc, nargv, "h:p:i:u:P:t:m:q:rs")) != -1) {
+    while ((opt = getopt(nargc, nargv, "h:p:i:u:P:t:m:q:rsn:")) != -1) {
         switch (opt) {
         case 'h': host    = optarg; break;
         case 'p': port    = (uint16_t)atoi(optarg); break;
@@ -573,6 +583,7 @@ int main(int argc, char *argv[])
         case 'q': qos     = (uint8_t)atoi(optarg); break;
         case 'r': retain  = 1; break;
         case 's': clean_session = 0; break; /* persistent session */
+        case 'n': message_limit = atoi(optarg); break;
         default:  usage(argv[0]); return 1;
         }
     }
@@ -590,7 +601,8 @@ int main(int argc, char *argv[])
         if (!topic) {
             fprintf(stderr, "sub requires -t TOPIC\n"); return 1;
         }
-        return cmd_sub(host, port, cid, user, pass, topic, qos, clean_session);
+        return cmd_sub(host, port, cid, user, pass, topic, qos, clean_session,
+                       message_limit);
 
     } else if (strcmp(cmd, "unsub") == 0) {
         if (!port) port = 1883;
